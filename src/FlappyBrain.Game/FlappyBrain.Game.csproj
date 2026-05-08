@@ -13,4 +13,13 @@
     <PackageReference Include="MonoGame.Framework.DesktopGL" Version="3.8.1.303" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="../FlappyBrain.BCI/FlappyBrain.BCI.csproj" />
+    <ProjectReference Include="../FlappyBrain.Input/FlappyBrain.Input.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
 </Project>
