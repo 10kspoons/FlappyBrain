@@ -1,0 +1,42 @@
+## .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+## MonoGame
+*.mgcb.log
+
+## Build output
+publish/
+dist/
+
+## Config with secrets (never commit)
+src/**/appsettings.local.json
+src/**/appsettings.Development.json
+
+## macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+## Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+## IDE
+.idea/
+*.swp
+*~
+
+## Logs
+*.log
+logs/
