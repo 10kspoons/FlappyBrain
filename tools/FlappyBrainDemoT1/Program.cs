@@ -242,7 +242,7 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         float by0 = birdY - BIRD_H / 2 + HITBOX_INSET;
         float by1 = birdY + BIRD_H / 2 - HITBOX_INSET;
         bool hitPipe = false;
-        foreach (var p in section2Pipes)
+        foreach (var p in activePipes)
         {
             float cScroll = (activePipes == section1Pipes) ? S1_SCROLL : S2_SCROLL;
             float cStart = (activePipes == section1Pipes) ? (float)S1_START : (float)S2_START;
