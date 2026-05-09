@@ -94,7 +94,8 @@ public class FlappyBrainGameV2 : Game
     // ===== RNG for gore (non-deterministic, doesn't affect layout) =====
     readonly Random _goreRng = new();
 
-    public FlappyBrainGameV2()
+    bool _aiMode;
+    public FlappyBrainGameV2(bool aiMode = false)
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -106,6 +107,7 @@ public class FlappyBrainGameV2 : Game
         IsMouseVisible = true;
         IsFixedTimeStep = true;
         TargetElapsedTime = TimeSpan.FromSeconds(1.0 / 60.0);
+        _aiMode = aiMode;
         Window.Title = "Flappy Brain V2 — 20 Sections of Pain";
     }
 
@@ -212,6 +214,7 @@ public class FlappyBrainGameV2 : Game
         switch (_state)
         {
             case GameState.Menu:
+                if (_aiMode) flapPressed = true; // auto-start
                 if (flapPressed)
                 {
                     _totalScore = 0;
@@ -220,6 +223,7 @@ public class FlappyBrainGameV2 : Game
                 break;
 
             case GameState.Playing:
+                if (_aiMode) flapPressed = AiShouldFlap();
                 UpdatePlaying(dt, flapPressed);
                 break;
 
@@ -241,6 +245,7 @@ public class FlappyBrainGameV2 : Game
                 break;
 
             case GameState.SectionTransition:
+                if (_aiMode) flapPressed = AiShouldFlap();
                 UpdateBird(dt, flapPressed, allowFlap: true, allowDeath: false);
                 // pipes drift off
                 foreach (var p in _pipes) p.X -= SectionSpeed(_currentSection) * dt;
@@ -1031,4 +1036,55 @@ public class FlappyBrainGameV2 : Game
             cx += charW + charSpacing;
         }
     }
+
+    // ===== AI Autopilot =====
+    int _aiDebugFrame = 0;
+
+
+    bool AiShouldFlap()
+    {
+        _aiDebugFrame++;
+
+        // Find nearest upcoming pipe
+        Pipe? next = null;
+        float minDist = float.MaxValue;
+        foreach (var p in _pipes)
+        {
+            if (p.X + PIPE_W > _birdX)
+            {
+                float d = p.X - _birdX;
+                if (d < minDist) { minDist = d; next = p; }
+            }
+        }
+
+        float gapCenter = next != null ? next.GapY : LogH / 2f;
+        float gapH      = next != null ? next.GapH : 160f;
+        float gapTop    = gapCenter - gapH / 2f;
+        float gapBottom = gapCenter + gapH / 2f;
+
+        // Safe flap zone: bird must be in lower gapH*0.28 portion so peak stays in gap
+        // With flap=-8.5 and gravity=0.4: peak rise ≈ 8.5*8.5/(2*0.4) ≈ 90px
+        // So flap when birdY >= gapCenter + (90 - gapH/2 + margin)
+        float minFlapY  = gapCenter + Math.Max(20f, 90f - gapH / 2f + 15f);
+
+        // Debug every 60 frames
+        if (_aiDebugFrame % 60 == 0)
+            System.Console.WriteLine(
+                $"AI #{_aiDebugFrame} birdY={_birdY:F0} vel={_birdVel:F1} " +
+                $"gapC={gapCenter:F0} gapH={gapH:F0} minFlapY={minFlapY:F0} " +
+                $"pipes={_pipes.Count} sec={_currentSection} score={_totalScore}");
+
+        // RULE 1: Never flap if above the minimum flap Y (stay above center naturally)
+        if (_birdY < minFlapY) return false;
+
+        // RULE 2: Flap when in the safe zone and not already rising fast
+        if (_birdVel > -4f) return true;
+
+        // RULE 3: Emergency — about to hit floor or ground
+        if (_birdY > gapBottom - 10f) return true;
+        if (_birdY > LogH - 60f) return true;
+
+        return false;
+    }
+
 }

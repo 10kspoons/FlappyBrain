@@ -1,4 +1,6 @@
 using FlappyBrain;
+using System.Linq;
 
-using var game = new FlappyBrainGameV2();
+bool aiMode = args.Any(a => a == "--ai");
+using var game = new FlappyBrainGameV2(aiMode);
 game.Run();
