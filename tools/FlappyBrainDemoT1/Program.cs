@@ -416,7 +416,7 @@ Console.WriteLine($"Rendered {TOTAL_FRAMES} frames to {FRAMES_DIR}");
 // HELPERS
 // ──────────────────────────────────────────────────────────────────
 
-static int S2_RESUME_START() => 675;
+static int S2_RESUME_START() => 225;
 
 static int S1_GAP_OR_S2(int frame) => frame < 360 ? 210 : 185;
 
@@ -430,7 +430,7 @@ static List<Pipe> BuildResumePipes(int frame, List<float> gapYList)
     // Pipes spawned every 68 frames starting at 690
     var pipes = new List<Pipe>();
     int idx = 5;
-    for (int f = 690; f < 900; f += 68)
+    for (int f = 240; f < 900; f += 68)
     {
         pipes.Add(new Pipe { SpawnFrame = f, GapY = gapYList[idx++] });
     }
