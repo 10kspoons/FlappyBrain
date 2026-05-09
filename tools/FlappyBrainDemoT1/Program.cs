@@ -244,9 +244,12 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         bool hitPipe = false;
         foreach (var p in section2Pipes)
         {
-            float px = ComputePipeX(p, frame, S2_SCROLL, S2_START);
+            float cScroll = (activePipes == section1Pipes) ? S1_SCROLL : S2_SCROLL;
+            float cStart = (activePipes == section1Pipes) ? (float)S1_START : (float)S2_START;
+            float px = ComputePipeX(p, frame, cScroll, cStart);
             if (px + PIPE_W < bx0 || px > bx1) continue;
-            float halfGap = S2_GAP / 2f;
+            int curGap = (activePipes == section1Pipes) ? S1_GAP : S2_GAP;
+            float halfGap = curGap / 2f;
             float topH = p.GapY - halfGap;
             float botY = p.GapY + halfGap;
             if (by0 < topH || by1 > botY)
