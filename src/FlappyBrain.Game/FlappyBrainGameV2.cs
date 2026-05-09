@@ -104,6 +104,8 @@ public class FlappyBrainGameV2 : Game
     bool _outbackTheme;
     Texture2D? _koalaTexture;
     const string KOALA_ASSET = "/tmp/flappybrain-assets/74284772-cd66-4305-b730-6ad58da2ffe8.png";
+    const string BG_ASSET    = "/tmp/flappybrain-assets/image-1---e490a7db-46c4-4ae2-b801-066b168dd1eb.png";
+    Texture2D? _bgTexture;
     float _bgScroll = 0f;
     float _demoCollisionTimer = 0f;   // counts real gameplay seconds
     readonly Random _demoRng = new Random(12345);
@@ -171,6 +173,11 @@ public class FlappyBrainGameV2 : Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         _pixel = new Texture2D(GraphicsDevice, 1, 1);
+        if (_outbackTheme && System.IO.File.Exists(BG_ASSET))
+        {
+            try { _bgTexture = Texture2D.FromFile(GraphicsDevice, BG_ASSET); }
+            catch { }
+        }
         if (_outbackTheme && System.IO.File.Exists(KOALA_ASSET))
         {
             try { _koalaTexture = Texture2D.FromFile(GraphicsDevice, KOALA_ASSET); }
@@ -641,7 +648,7 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Draw(GameTime gameTime)
     {
-        GraphicsDevice.Clear(new Color(0x6E, 0xC8, 0xE6));
+        GraphicsDevice.Clear(_outbackTheme ? new Color(0x1A, 0x0F, 0x08) : new Color(0x6E, 0xC8, 0xE6));
 
         // Compute screen shake offset
         Vector2 shake = Vector2.Zero;
@@ -1251,30 +1258,73 @@ public class FlappyBrainGameV2 : Game
 
     void DrawOutbackSky(Vector2 shake)
     {
-        // Three-stop gradient: #1C3A6E → #5B9BD5 → #F0A832
-        var c1 = new Color(0x1C, 0x3A, 0x6E);
-        var c2 = new Color(0x5B, 0x9B, 0xD5);
-        var c3 = new Color(0xF0, 0xA8, 0x32);
-        int h = LogH - 80;
-        for (int y = 0; y < h; y++)
+        // Post-apocalyptic: draw BG asset first, then burnt-orange sky gradient overlay
+        if (_bgTexture != null)
         {
-            float t = y / (float)h;
+            _spriteBatch.Draw(_bgTexture,
+                new Rectangle(0, 0, LogW, LogH),
+                Color.White);
+        }
+
+        // Burnt-orange gradient overlay at 65% opacity: #1A0F08 → #6B3020 → #C4622D
+        var c1 = new Color(0x1A, 0x0F, 0x08);
+        var c2 = new Color(0x6B, 0x30, 0x20);
+        var c3 = new Color(0xC4, 0x62, 0x2D);
+        int skyH = LogH - 70;
+        for (int y = 0; y < skyH; y++)
+        {
+            float t = y / (float)skyH;
             Color c = t < 0.55f
                 ? Color.Lerp(c1, c2, t / 0.55f)
                 : Color.Lerp(c2, c3, (t - 0.55f) / 0.45f);
-            DrawRect(0, y + shake.Y, LogW, 1, c);
+            DrawRect(0, y + shake.Y, LogW, 1, c * 0.65f);
         }
-        // Gum tree silhouettes (3 parallax layers)
-        DrawGumTrees(0.08f, new Color(0x2A, 0x1A, 0x08), 120);
-        DrawGumTrees(0.15f, new Color(0x1A, 0x2A, 0x0A), 180);
-        // Dust particles
-        var rng2 = new Random(42);
-        for (int i = 0; i < 60; i++)
+
+        // Speed lines: 15 horizontal streaks from left edge
+        var rngSL = new Random((int)(_bgScroll / 30f));
+        for (int i = 0; i < 15; i++)
         {
-            float px = ((rng2.NextSingle() * LogW + _bgScroll * (0.5f + rng2.NextSingle() * 1.5f)) % LogW);
-            float py = 40 + rng2.NextSingle() * 400;
+            float py = rngSL.NextSingle() * LogH;
+            float len = 60 + rngSL.NextSingle() * 120;
+            float alpha = 0.20f + rngSL.NextSingle() * 0.25f;
+            DrawRect(shake.X, py + shake.Y, len, 1, new Color(0xC4, 0x62, 0x2D) * alpha);
+        }
+
+        // Dust particles drifting left
+        var rng2 = new Random(42);
+        for (int i = 0; i < 80; i++)
+        {
+            float px = ((rng2.NextSingle() * LogW * 2 - _bgScroll * (0.5f + rng2.NextSingle())) % (LogW * 2));
+            if (px < 0) px += LogW * 2;
+            if (px > LogW) continue;
+            float py = 30 + rng2.NextSingle() * 500;
             float sz = 2 + rng2.NextSingle() * 2;
-            DrawRect(px + shake.X, py + shake.Y, (int)sz, (int)sz, new Color(0xD4, 0x95, 0x6A) * 0.3f);
+            DrawRect(px + shake.X, py + shake.Y, (int)sz, (int)sz, new Color(0xD4, 0x95, 0x6A) * 0.35f);
+        }
+
+        // Ruined city silhouette (far background parallax)
+        DrawRuinedSkyline(shake);
+    }
+
+    void DrawRuinedSkyline(Vector2 shake)
+    {
+        float offset = (_bgScroll * 0.08f) % (LogW * 2);
+        var col = new Color(0x2A, 0x15, 0x08) * 0.9f;
+        int[] widths  = { 40, 25, 55, 30, 70, 20, 45, 35 };
+        int[] heights = { 180, 120, 220, 140, 160, 90, 200, 130 };
+        int x = 0;
+        for (int i = 0; i < widths.Length * 2; i++)
+        {
+            int idx = i % widths.Length;
+            int bx = (int)(x - offset + LogW);
+            if (bx > -80 && bx < LogW + 20)
+            {
+                int by = LogH - 70 - heights[idx];
+                DrawRect(bx + shake.X, by + shake.Y, widths[idx], heights[idx], col);
+                // Broken top edge
+                DrawRect(bx + shake.X + widths[idx] - 8, by + shake.Y - 20, 8, 20, col);
+            }
+            x += widths[idx] + 10;
         }
     }
 
@@ -1302,38 +1352,47 @@ public class FlappyBrainGameV2 : Game
 
     void DrawOutbackGround(Vector2 shake)
     {
-        // Red dirt gradient
-        int groundY = LogH - 80;
-        for (int y = 0; y < 80; y++)
+        // Post-apoc: dark ash and rubble
+        int groundY = LogH - 70;
+        for (int y = 0; y < 70; y++)
         {
-            float t = y / 80f;
-            Color c = Color.Lerp(new Color(0xC2, 0x50, 0x1F), new Color(0x8B, 0x30, 0x10), t);
+            float t = y / 70f;
+            Color c = Color.Lerp(new Color(0x3A, 0x20, 0x10), new Color(0x1A, 0x0A, 0x05), t);
             DrawRect(0, groundY + y + shake.Y, LogW, 1, c);
         }
-        // Ground highlight
-        DrawRect(0, groundY + shake.Y, LogW, 3, new Color(0xD4, 0x70, 0x30));
+        // Rubble chunks
+        var rng3 = new Random(77);
+        for (int i = 0; i < 20; i++)
+        {
+            int rx = (int)((rng3.NextSingle() * LogW * 2 - _bgScroll * 0.3f) % (LogW * 2));
+            if (rx > LogW || rx < -30) continue;
+            int rw = 4 + (int)(rng3.NextSingle() * 14);
+            int rh = 3 + (int)(rng3.NextSingle() * 8);
+            DrawRect(rx + shake.X, groundY + shake.Y + 3, rw, rh, new Color(0x2A, 0x15, 0x08));
+        }
     }
 
     void DrawOutbackPipe(Pipe p, Vector2 shake)
     {
         float topH = MathF.Max(0, p.GapY - p.GapH / 2f);
         float botY = p.GapY + p.GapH / 2f;
-        float botH = MathF.Max(0, LogH - 80 - botY);
+        float botH = MathF.Max(0, LogH - 70 - botY);
 
-        var body = new Color(0x8B, 0x5E, 0x3C);
-        var stripe = new Color(0xA0, 0x70, 0x50);
-        var cap = new Color(0x6A, 0x40, 0x20);
+        // Post-apoc: darker, rustier corrugated iron
+        var body   = new Color(0x5A, 0x30, 0x10);
+        var stripe = new Color(0x6B, 0x40, 0x20);
+        var cap    = new Color(0x4A, 0x28, 0x08);
 
         // Top pipe
         DrawRect(p.X + shake.X, shake.Y, PIPE_W, topH, body);
-        for (float i = 0; i < topH; i += 15)
+        for (float i = 0; i < topH; i += 12)
             DrawRect(p.X + shake.X, shake.Y + i, PIPE_W, 2, stripe);
         if (topH > 0)
             DrawRect(p.X + shake.X - 5, shake.Y + topH - 20, PIPE_W + 10, 20, cap);
 
         // Bottom pipe
         DrawRect(p.X + shake.X, shake.Y + botY, PIPE_W, botH, body);
-        for (float i = 0; i < botH; i += 15)
+        for (float i = 0; i < botH; i += 12)
             DrawRect(p.X + shake.X, shake.Y + botY + i, PIPE_W, 2, stripe);
         if (botH > 0)
             DrawRect(p.X + shake.X - 5, shake.Y + botY, PIPE_W + 10, 20, cap);
