@@ -61,6 +61,7 @@ var section1Pipes = new List<Pipe>
     new Pipe { SpawnFrame = 80,  GapY = gapYList[0] },
     new Pipe { SpawnFrame = 160, GapY = gapYList[1] },
     new Pipe { SpawnFrame = 240, GapY = gapYList[2] },
+    new Pipe { SpawnFrame = -94, GapY = 150f }, // collision pipe: at X=200 frame 120
 };
 
 // Section 2 pipes spawn at frames 460, 528. Second pipe at X≈280 when frame=555 ensures collision target.
@@ -83,7 +84,7 @@ var section2Pipes = new List<Pipe>
 {
     new Pipe { SpawnFrame = 460, GapY = gapYList[3] },
     new Pipe { SpawnFrame = 528, GapY = 380f }, // lower gap so override-down hits bottom pipe / ground area
-    new Pipe { SpawnFrame = -94, GapY = 150f }, // collision pipe: X=200 at frame 120, bottom pipe top=242.5
+    
 };
 
 // Bird state
