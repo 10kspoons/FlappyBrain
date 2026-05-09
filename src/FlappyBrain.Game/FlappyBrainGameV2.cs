@@ -96,10 +96,16 @@ public class FlappyBrainGameV2 : Game
     readonly Random _goreRng = new();
 
     bool _aiMode;
+    bool _outbackTheme;
+    Texture2D? _koalaTexture;
+    const string KOALA_ASSET = "/tmp/flappybrain-assets/74284772-cd66-4305-b730-6ad58da2ffe8.png";
+    float _bgScroll = 0f;
+    float _demoCollisionTimer = 0f;   // counts real gameplay seconds
+    readonly Random _demoRng = new Random(12345);
     bool _learnedMode;
     float[,]? _qTable;
 
-    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false)
+    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false)
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -112,6 +118,7 @@ public class FlappyBrainGameV2 : Game
         IsFixedTimeStep = true;
         TargetElapsedTime = TimeSpan.FromSeconds(1.0 / 60.0);
         _aiMode = aiMode;
+        _outbackTheme = outbackTheme;
         _learnedMode = learnedMode;
         if (_learnedMode)
         {
@@ -159,6 +166,11 @@ public class FlappyBrainGameV2 : Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         _pixel = new Texture2D(GraphicsDevice, 1, 1);
+        if (_outbackTheme && System.IO.File.Exists(KOALA_ASSET))
+        {
+            try { _koalaTexture = Texture2D.FromFile(GraphicsDevice, KOALA_ASSET); }
+            catch { /* fallback to pixel art */ }
+        }
         _pixel.SetData(new[] { Color.White });
     }
 
@@ -320,6 +332,20 @@ public class FlappyBrainGameV2 : Game
 
     void UpdatePlaying(float dt, bool flapPressed)
     {
+        if (_outbackTheme) _bgScroll += 2.4f;
+
+        // Demo: every 15 seconds of play, 1-in-3 chance of forced collision
+        if (_aiMode)
+        {
+            _demoCollisionTimer += dt;
+            if (_demoCollisionTimer >= 15f)
+            {
+                _demoCollisionTimer = 0f;
+                if (_demoRng.Next(3) == 0)  // 1-in-3
+                    TriggerGore();
+            }
+        }
+
         _sectionTimer += dt;
         _spawnTimer += dt;
 
@@ -668,6 +694,7 @@ public class FlappyBrainGameV2 : Game
 
     void DrawSky(Vector2 shake)
     {
+        if (_outbackTheme) { DrawOutbackSky(shake); return; }
         // Gradient bands
         for (int y = 0; y < 4; y++)
         {
@@ -692,6 +719,7 @@ public class FlappyBrainGameV2 : Game
 
     void DrawGround(Vector2 shake)
     {
+        if (_outbackTheme) { DrawOutbackGround(shake); return; }
         DrawRect(shake.X, shake.Y + LogH - 60, LogW, 60, new Color(0x8B, 0x6F, 0x4E));
         DrawRect(shake.X, shake.Y + LogH - 60, LogW, 6, new Color(0x6E, 0xB7, 0x4E));
         // Grass tufts
@@ -703,6 +731,7 @@ public class FlappyBrainGameV2 : Game
 
     void DrawPipe(Pipe p, Vector2 shake)
     {
+        if (_outbackTheme) { DrawOutbackPipe(p, shake); return; }
         float topH = MathF.Max(0, p.GapY - p.GapH / 2f);
         float botY = p.GapY + p.GapH / 2f;
         float botH = MathF.Max(0, LogH - 60 - botY);
@@ -746,6 +775,17 @@ public class FlappyBrainGameV2 : Game
 
     void DrawBird(float x, float y, float rot)
     {
+        if (_outbackTheme && _koalaTexture != null)
+        {
+            // Draw koala asset sprite
+            int w = 160, h = 130;
+            var dest = new Rectangle((int)(x - w/2), (int)(y - h/2), w, h);
+            float r = MathHelper.Clamp(rot, -0.5f, 1.2f);
+            _spriteBatch.Draw(_koalaTexture, dest, null, Color.White, r,
+                new Vector2(_koalaTexture.Width / 2f, _koalaTexture.Height / 2f),
+                SpriteEffects.None, 0f);
+            return;
+        }
         // Body — golden
         Color body = new Color(0xFF, 0xD0, 0x40);
         Color belly = new Color(0xFF, 0xE8, 0x80);
@@ -1181,5 +1221,99 @@ public class FlappyBrainGameV2 : Game
 
         return false;
     }
+
+
+    // ===== OUTBACK THEME HELPERS =====
+
+    void DrawOutbackSky(Vector2 shake)
+    {
+        // Three-stop gradient: #1C3A6E → #5B9BD5 → #F0A832
+        var c1 = new Color(0x1C, 0x3A, 0x6E);
+        var c2 = new Color(0x5B, 0x9B, 0xD5);
+        var c3 = new Color(0xF0, 0xA8, 0x32);
+        int h = LogH - 80;
+        for (int y = 0; y < h; y++)
+        {
+            float t = y / (float)h;
+            Color c = t < 0.55f
+                ? Color.Lerp(c1, c2, t / 0.55f)
+                : Color.Lerp(c2, c3, (t - 0.55f) / 0.45f);
+            DrawRect(0, y + shake.Y, LogW, 1, c);
+        }
+        // Gum tree silhouettes (3 parallax layers)
+        DrawGumTrees(0.08f, new Color(0x2A, 0x1A, 0x08), 120);
+        DrawGumTrees(0.15f, new Color(0x1A, 0x2A, 0x0A), 180);
+        // Dust particles
+        var rng2 = new Random(42);
+        for (int i = 0; i < 60; i++)
+        {
+            float px = ((rng2.NextSingle() * LogW + _bgScroll * (0.5f + rng2.NextSingle() * 1.5f)) % LogW);
+            float py = 40 + rng2.NextSingle() * 400;
+            float sz = 2 + rng2.NextSingle() * 2;
+            DrawRect(px + shake.X, py + shake.Y, (int)sz, (int)sz, new Color(0xD4, 0x95, 0x6A) * 0.3f);
+        }
+    }
+
+    void DrawGumTrees(float parallax, Color col, int baseY)
+    {
+        float offset = (_bgScroll * parallax) % (LogW * 2);
+        int[] xs = { 0, 220, 450, 670, 900, 1120 };
+        foreach (int tx in xs)
+        {
+            int x = (int)(tx - offset);
+            if (x > -120 && x < LogW + 60)
+                DrawSingleGumTree(x, baseY, col);
+        }
+    }
+
+    void DrawSingleGumTree(int x, int baseY, Color col)
+    {
+        // Trunk
+        DrawRect(x, baseY - 80, 8, 80, col);
+        // Leaf clusters
+        DrawCircle(x + 4, baseY - 95, 28, col);
+        DrawCircle(x - 20, baseY - 80, 22, col);
+        DrawCircle(x + 25, baseY - 78, 25, col);
+    }
+
+    void DrawOutbackGround(Vector2 shake)
+    {
+        // Red dirt gradient
+        int groundY = LogH - 80;
+        for (int y = 0; y < 80; y++)
+        {
+            float t = y / 80f;
+            Color c = Color.Lerp(new Color(0xC2, 0x50, 0x1F), new Color(0x8B, 0x30, 0x10), t);
+            DrawRect(0, groundY + y + shake.Y, LogW, 1, c);
+        }
+        // Ground highlight
+        DrawRect(0, groundY + shake.Y, LogW, 3, new Color(0xD4, 0x70, 0x30));
+    }
+
+    void DrawOutbackPipe(Pipe p, Vector2 shake)
+    {
+        float topH = MathF.Max(0, p.GapY - p.GapH / 2f);
+        float botY = p.GapY + p.GapH / 2f;
+        float botH = MathF.Max(0, LogH - 80 - botY);
+
+        var body = new Color(0x8B, 0x5E, 0x3C);
+        var stripe = new Color(0xA0, 0x70, 0x50);
+        var cap = new Color(0x6A, 0x40, 0x20);
+
+        // Top pipe
+        DrawRect(p.X + shake.X, shake.Y, PIPE_W, topH, body);
+        for (float i = 0; i < topH; i += 15)
+            DrawRect(p.X + shake.X, shake.Y + i, PIPE_W, 2, stripe);
+        if (topH > 0)
+            DrawRect(p.X + shake.X - 5, shake.Y + topH - 20, PIPE_W + 10, 20, cap);
+
+        // Bottom pipe
+        DrawRect(p.X + shake.X, shake.Y + botY, PIPE_W, botH, body);
+        for (float i = 0; i < botH; i += 15)
+            DrawRect(p.X + shake.X, shake.Y + botY + i, PIPE_W, 2, stripe);
+        if (botH > 0)
+            DrawRect(p.X + shake.X - 5, shake.Y + botY, PIPE_W + 10, 20, cap);
+    }
+
 
 }
