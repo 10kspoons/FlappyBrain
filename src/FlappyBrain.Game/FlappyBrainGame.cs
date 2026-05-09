@@ -52,10 +52,17 @@ public class PipePair
     public float GapHeight;
     public bool  Scored;
 
-    public RectangleF TopRect(float screenH) =>
-        new(X, 0, Width, GapCenterY - GapHeight / 2);
-    public RectangleF BottomRect(float screenH) =>
-        new(X, GapCenterY + GapHeight / 2, Width, screenH - (GapCenterY + GapHeight / 2));
+    public RectangleF TopRect(float screenH)
+    {
+        float h = GapCenterY - GapHeight / 2f;
+        return new(X, 0, Width, MathF.Max(0, h));
+    }
+    public RectangleF BottomRect(float screenH)
+    {
+        float botY = GapCenterY + GapHeight / 2f;
+        float h = screenH - botY;
+        return new(X, botY, Width, MathF.Max(0, h));
+    }
 
     public void Update(float speed, float dt) { X -= speed * dt; }
 }
@@ -245,8 +252,10 @@ public class FlappyBrainGame : Game
         }
         foreach (var p in _pipes)
         {
-            if (_bird.Hitbox.Intersects(p.TopRect(LogH)) ||
-                _bird.Hitbox.Intersects(p.BottomRect(LogH)))
+            if (Collision.HitsTopPipe(_bird.Position.X, _bird.Position.Y, Bird.Width, Bird.Height,
+                                       p.X, PipePair.Width, p.GapCenterY, p.GapHeight) ||
+                Collision.HitsBottomPipe(_bird.Position.X, _bird.Position.Y, Bird.Width, Bird.Height,
+                                          p.X, PipePair.Width, p.GapCenterY, p.GapHeight, LogH))
             {
                 KillBird(); return;
             }
@@ -652,13 +661,4 @@ public class FlappyBrainGame : Game
     }
 }
 
-// ── RectangleF helper ─────────────────────────────────────────────────────────
-
-public struct RectangleF
-{
-    public float X, Y, Width, Height;
-    public RectangleF(float x, float y, float w, float h) { X=x; Y=y; Width=w; Height=h; }
-    public bool Intersects(RectangleF o) =>
-        X < o.X + o.Width && X + Width > o.X &&
-        Y < o.Y + o.Height && Y + Height > o.Y;
-}
+// RectangleF moved to RectangleF.cs
