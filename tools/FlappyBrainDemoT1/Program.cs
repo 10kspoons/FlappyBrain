@@ -31,8 +31,8 @@ const int S1_START = 60;
 const int S1_END = 360;            // 60-359 gameplay
 const int S1_BANNER_END = 450;     // 360-449 banner
 const int S2_START = 450;
-const int COLLISION_FRAME = 570;
-const int GORE_END = 645;          // 570-644
+const int COLLISION_FRAME = 510;
+const int GORE_END = 585;          // 510-584 (75 frames of gore)
 const int RETRY_END = 675;         // 645-674
 const int S2_RESUME_END = 900;     // 675-899
 
@@ -83,6 +83,7 @@ var section2Pipes = new List<Pipe>
 {
     new Pipe { SpawnFrame = 460, GapY = gapYList[3] },
     new Pipe { SpawnFrame = 528, GapY = 380f }, // lower gap so override-down hits bottom pipe / ground area
+    new Pipe { SpawnFrame = 330, GapY = 460f }, // collision pipe — at X≈188 by frame 510 (bird X=200)
 };
 
 // Bird state
@@ -189,10 +190,10 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
             }
         }
 
-        // Override frames 555-569: steer DOWN
-        if (frame >= 555 && frame < COLLISION_FRAME)
+        // Override frames 480-509: steer DOWN hard so bird crashes into collision pipe
+        if (frame >= 480 && frame < COLLISION_FRAME)
         {
-            birdVY += 3f;
+            birdVY = Math.Min(birdVY + 6f, 14f);
         }
         else if (nextPipe != null)
         {
@@ -229,16 +230,41 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
 
         // Clamp to top
         if (birdY < 30) { birdY = 30; birdVY = 0; }
-        // Don't clamp to ground — let the override push into ground for collision at frame 570
+        // During override approach, clamp Y so bird stays above ground until pipe-intersection collision
+        if (frame >= 480 && frame < COLLISION_FRAME && birdY > 360f) { birdY = 360f; birdVY = 0; }
     }
 
-    // Trigger collision at frame 570
-    if (frame == COLLISION_FRAME && !collided)
+    // Pipe-intersection collision check at COLLISION_FRAME — bird hitbox vs collision pipe top
+    if (!collided && frame == COLLISION_FRAME)
     {
+        float bx0 = birdX - BIRD_W / 2 + HITBOX_INSET;
+        float bx1 = birdX + BIRD_W / 2 - HITBOX_INSET;
+        float by0 = birdY - BIRD_H / 2 + HITBOX_INSET;
+        float by1 = birdY + BIRD_H / 2 - HITBOX_INSET;
+        bool hitPipe = false;
+        foreach (var p in section2Pipes)
+        {
+            float px = ComputePipeX(p, frame, S2_SCROLL, S2_START);
+            if (px + PIPE_W < bx0 || px > bx1) continue;
+            float halfGap = S2_GAP / 2f;
+            float topH = p.GapY - halfGap;
+            float botY = p.GapY + halfGap;
+            if (by0 < topH || by1 > botY)
+            {
+                hitPipe = true;
+                break;
+            }
+        }
+        // Fire collision either way — pipe intersection confirmed or fallback
         collided = true;
         lastBirdX = birdX;
         lastBirdY = birdY;
         SpawnGore(gore, lastBirdX, lastBirdY, rng);
+        // 3 pre-placed impact stains, extra large
+        stains.Add((birdX - 20f, 30f + (float)rng.NextDouble() * 20f));
+        stains.Add((birdX,        35f + (float)rng.NextDouble() * 15f));
+        stains.Add((birdX + 20f, 30f + (float)rng.NextDouble() * 20f));
+        Console.WriteLine($"Collision @ frame {frame}: birdY={birdY:F1}, hitPipe={hitPipe}");
     }
 
     // Update gore particles
@@ -257,7 +283,7 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
             if (g.Type == GoreType.BloodBlob && g.Y > GROUND_Y && !g.Stained)
             {
                 g.Stained = true;
-                stains.Add((g.X, 8f + (float)rng.NextDouble() * 12f));
+                stains.Add((g.X, 15f + (float)rng.NextDouble() * 25f));
             }
         }
     }
@@ -265,7 +291,6 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
     // Section/score progression
     if (frame == S1_END) score = 5;
     if (frame == 460) score = 5; // entering section 2
-    if (frame == 528) score = 6;
 
     // Clear stains at frame 675 (per spec)
     if (frame == RETRY_END)
@@ -286,9 +311,9 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
     if (inGore)
     {
         int gf = frame - COLLISION_FRAME;
-        float amp = 12f * Math.Max(0f, 1f - gf / 75f);
+        float amp = 28f * Math.Max(0f, 1f - gf / 75f);
         float sx = (float)Math.Sin(gf * 0.8) * amp;
-        float sy = (float)Math.Cos(gf * 0.7) * amp;
+        float sy = (float)Math.Cos(gf * 1.1) * amp;
         canvas.Translate(sx, sy);
     }
 
@@ -329,11 +354,11 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         DrawGore(canvas, gore);
     }
 
-    // Red flash 570-578
-    if (frame >= COLLISION_FRAME && frame < COLLISION_FRAME + 9)
+    // Red flash — extended duration, brighter initial alpha
+    if (frame >= COLLISION_FRAME && frame < COLLISION_FRAME + 18)
     {
         int gf = frame - COLLISION_FRAME;
-        float a = 0.6f * (1f - gf / 9f);
+        float a = 0.85f * (1f - gf / 18f);
         using var p = new SKPaint { Color = new SKColor(255, 0, 0, (byte)(a * 255)) };
         canvas.DrawRect(0, 0, W, H, p);
     }
@@ -354,8 +379,8 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         DrawRetryScreen(canvas);
     }
 
-    // SPLAT text 580-644
-    if (frame >= 580 && frame < GORE_END)
+    // SPLAT text — appears 10 frames after collision through end of gore
+    if (frame >= COLLISION_FRAME + 10 && frame < GORE_END)
     {
         DrawSplatText(canvas, frame);
     }
@@ -562,11 +587,13 @@ static void SpawnGore(List<GoreParticle> gore, float x, float y, Random rng)
             });
         }
     }
-    add(30, GoreType.BloodBlob, new SKColor(0xCC, 0x00, 0x10), 8, 16, 150, 350, 280, false);
-    add(18, GoreType.FurChunk, new SKColor(0x8B, 0x60, 0x40), 10, 18, 100, 250, 200, true);
-    add(12, GoreType.Feather, new SKColor(0xD4, 0xC0, 0x90), 5, 18, 50, 140, 80, true);
-    add(7,  GoreType.Bone,    new SKColor(0xF0, 0xE8, 0xD0), 4, 14, 220, 400, 350, true);
-    add(23, GoreType.BloodSpray, new SKColor(0xFF, 0x10, 0x20, (byte)(0.7f * 255)), 2, 5, 280, 550, 180, false);
+    add(70, GoreType.BloodBlob, new SKColor(0xCC, 0x00, 0x10), 10, 28, 120, 400, 280, false);
+    add(45, GoreType.FurChunk, new SKColor(0x8B, 0x60, 0x40), 12, 25, 80, 300, 200, true);
+    add(30, GoreType.Feather, new SKColor(0xD4, 0xC0, 0x90), 6, 22, 40, 180, 80, true);
+    add(20, GoreType.Bone,    new SKColor(0xF0, 0xE8, 0xD0), 5, 18, 200, 500, 350, true);
+    add(65, GoreType.BloodSpray, new SKColor(0xFF, 0x10, 0x20, (byte)(0.7f * 255)), 2, 7, 250, 650, 180, false);
+    // Visceral chunks — large dark purple-red blobs, slow heavy "guts"
+    add(20, GoreType.BloodBlob, new SKColor(0x6A, 0x00, 0x08), 18, 35, 60, 200, 180, true);
 }
 
 static void DrawGore(SKCanvas canvas, List<GoreParticle> gore)
@@ -656,11 +683,15 @@ static void DrawRetryScreen(SKCanvas canvas)
 
 static void DrawSplatText(SKCanvas canvas, int frame)
 {
-    using var font = new SKFont(SKTypeface.FromFamilyName("DejaVu Sans", SKFontStyle.Bold), 76);
-    using var outline = new SKPaint { Color = SKColors.Black, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 6 };
+    using var font = new SKFont(SKTypeface.FromFamilyName("DejaVu Sans", SKFontStyle.Bold), 96);
+    using var outline = new SKPaint { Color = SKColors.Black, IsAntialias = true, Style = SKPaintStyle.Stroke, StrokeWidth = 7 };
+    using var white = new SKPaint { Color = SKColors.White, IsAntialias = true };
     using var fill = new SKPaint { Color = new SKColor(0xFF, 0x20, 0x20), IsAntialias = true };
 
     string text = "💀 SPLAT!";
+    // White outline 4px offset — drawn first behind everything
+    DrawCenteredText(canvas, text, W / 2 + 4, 270 + 4, font, white);
+    DrawCenteredText(canvas, text, W / 2 - 4, 270 - 4, font, white);
     DrawCenteredText(canvas, text, W / 2, 270, font, outline);
     DrawCenteredText(canvas, text, W / 2, 270, font, fill);
 }
