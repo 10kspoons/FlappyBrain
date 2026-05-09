@@ -31,9 +31,9 @@ const int S1_START = 60;
 const int S1_END = 360;            // 60-359 gameplay
 const int S1_BANNER_END = 450;     // 360-449 banner
 const int S2_START = 450;
-const int COLLISION_FRAME = 510;
-const int GORE_END = 585;          // 510-584 (75 frames of gore)
-const int RETRY_END = 675;         // 645-674
+const int COLLISION_FRAME = 487;
+const int GORE_END = 562;          // 487-561 (75 frames)
+const int RETRY_END = 592;          // 562-591 (30 frames retry)
 const int S2_RESUME_END = 900;     // 675-899
 
 Directory.CreateDirectory(FRAMES_DIR);
@@ -231,7 +231,6 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         // Clamp to top
         if (birdY < 30) { birdY = 30; birdVY = 0; }
         // During override approach, clamp Y so bird stays above ground until pipe-intersection collision
-        if (frame >= 480 && frame < COLLISION_FRAME && birdY > 360f) { birdY = 360f; birdVY = 0; }
     }
 
     // Pipe-intersection collision check at COLLISION_FRAME — bird hitbox vs collision pipe top
