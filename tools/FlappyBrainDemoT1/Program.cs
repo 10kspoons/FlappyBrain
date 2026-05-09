@@ -145,7 +145,7 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
     // Determine current scroll & active pipes
     float scroll = 0f;
     List<Pipe> activePipes = new();
-    if (frame < S1_END)
+    if (frame <= COLLISION_FRAME)
     {
         scroll = S1_SCROLL;
         activePipes = section1Pipes;
