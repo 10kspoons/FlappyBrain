@@ -27,6 +27,11 @@ public class FlappyBrainGameV2 : Game
     const float TERMINAL = 14f;
     const float BIRD_WIDTH = 40f;
     const float BIRD_HEIGHT = 36f;
+    // Outback theme uses the large koala sprite (160x130) — hitbox ~70% of visual
+    const float OUTBACK_BIRD_W = 110f;
+    const float OUTBACK_BIRD_H = 90f;
+    // Gap bonus for outback mode (sprite is much larger than pixel bird)
+    const float OUTBACK_GAP_BONUS = 80f;
 
     // ===== Pipe =====
     const float PIPE_W = 90f;
@@ -360,7 +365,8 @@ public class FlappyBrainGameV2 : Game
                 _spawnTimer = 0;
                 float gapY = _sectionPipes[_currentSection][_currentPipeIndex];
                 _currentPipeIndex++;
-                _pipes.Add(new Pipe { X = LogW + 20, GapY = gapY, GapH = SectionGap(_currentSection) });
+                float gapH = SectionGap(_currentSection) + (_outbackTheme ? OUTBACK_GAP_BONUS : 0f);
+                _pipes.Add(new Pipe { X = LogW + 20, GapY = gapY, GapH = gapH });
             }
         }
 
@@ -421,7 +427,9 @@ public class FlappyBrainGameV2 : Game
 
     void CheckCollision()
     {
-        var birdBox = Collision.BirdHitbox(_birdX, _birdY, BIRD_WIDTH, BIRD_HEIGHT);
+        float bW = _outbackTheme ? OUTBACK_BIRD_W : BIRD_WIDTH;
+        float bH = _outbackTheme ? OUTBACK_BIRD_H : BIRD_HEIGHT;
+        var birdBox = Collision.BirdHitbox(_birdX, _birdY, bW, bH);
         foreach (var p in _pipes)
         {
             var top = Collision.PipeTopRect(p.X, PIPE_W, p.GapY, p.GapH);
@@ -778,12 +786,27 @@ public class FlappyBrainGameV2 : Game
         if (_outbackTheme && _koalaTexture != null)
         {
             // Draw koala asset sprite
-            int w = 160, h = 130;
-            var dest = new Rectangle((int)(x - w/2), (int)(y - h/2), w, h);
+            float sprW = 160f, sprH = 130f;
             float r = MathHelper.Clamp(rot, -0.5f, 1.2f);
-            _spriteBatch.Draw(_koalaTexture, dest, null, Color.White, r,
+            float scaleX = sprW / _koalaTexture.Width;
+            float scaleY = sprH / _koalaTexture.Height;
+            // Draw centered at (x, y) — origin = texture center, position = bird center
+            _spriteBatch.Draw(_koalaTexture,
+                new Vector2(x, y),
+                null,
+                Color.White,
+                r,
                 new Vector2(_koalaTexture.Width / 2f, _koalaTexture.Height / 2f),
-                SpriteEffects.None, 0f);
+                new Vector2(scaleX, scaleY),
+                SpriteEffects.None,
+                0f);
+            // Draw hitbox outline for debugging (thin red border)
+            float hbW = OUTBACK_BIRD_W - 8f, hbH = OUTBACK_BIRD_H - 8f;
+            var hitCol = new Color(255, 0, 0) * 0.6f;
+            DrawRect(x - hbW/2, y - hbH/2, hbW, 2, hitCol);  // top
+            DrawRect(x - hbW/2, y + hbH/2, hbW, 2, hitCol);  // bottom
+            DrawRect(x - hbW/2, y - hbH/2, 2, hbH, hitCol);  // left
+            DrawRect(x + hbW/2, y - hbH/2, 2, hbH, hitCol);  // right
             return;
         }
         // Body — golden
@@ -1139,8 +1162,9 @@ public class FlappyBrainGameV2 : Game
     bool AiShouldFlapLearned()
     {
         // Find pipe overlapping bird (preferred), or next ahead
-        float birdLeft = _birdX - BIRD_WIDTH / 2f + QL_HITBOX_INSET;
-        float birdRight = _birdX + BIRD_WIDTH / 2f - QL_HITBOX_INSET;
+        float bW2 = _outbackTheme ? OUTBACK_BIRD_W : BIRD_WIDTH;
+        float birdLeft = _birdX - bW2 / 2f + QL_HITBOX_INSET;
+        float birdRight = _birdX + bW2 / 2f - QL_HITBOX_INSET;
 
         Pipe? inside = null;
         foreach (var p in _pipes)
