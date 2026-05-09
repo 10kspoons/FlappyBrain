@@ -28,12 +28,12 @@ const int S2_GAP = 185;
 // Frame ranges
 const int TITLE_END = 60;          // 0-59
 const int S1_START = 60;
-const int S1_END = 360;            // 60-359 gameplay
-const int S1_BANNER_END = 450;     // 360-449 banner
-const int S2_START = 450;
-const int COLLISION_FRAME = 460;
-const int GORE_END = 535;          // 460-534 (75 frames)
-const int RETRY_END = 565;          // 535-564 (30 frames retry)
+const int S1_END = 119;            // brief S1 before crash
+const int S1_BANNER_END = 120;     // no banner, go straight to crash
+const int S2_START = 120;
+const int COLLISION_FRAME = 120;
+const int GORE_END = 195;          // 120-194 (75 frames)
+const int RETRY_END = 225;         // 195-224 (30 frames)
 const int S2_RESUME_END = 900;     // 675-899
 
 Directory.CreateDirectory(FRAMES_DIR);
@@ -83,7 +83,7 @@ var section2Pipes = new List<Pipe>
 {
     new Pipe { SpawnFrame = 460, GapY = gapYList[3] },
     new Pipe { SpawnFrame = 528, GapY = 380f }, // lower gap so override-down hits bottom pipe / ground area
-    new Pipe { SpawnFrame = 283, GapY = 300f }, // collision pipe at X=200 frame 460, bottom pipe top=392.5
+    new Pipe { SpawnFrame = -94, GapY = 150f }, // collision pipe: X=200 at frame 120, bottom pipe top=242.5
 };
 
 // Bird state
@@ -154,7 +154,7 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         scroll = 0f; // pause scrolling (no pipes)
         activePipes = new List<Pipe>();
     }
-    else if (frame >= S2_START && frame < COLLISION_FRAME)
+    else if (frame >= 100 && frame < COLLISION_FRAME)
     {
         scroll = S2_SCROLL;
         activePipes = section2Pipes;
@@ -191,7 +191,7 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
         }
 
         // Override frames 480-509: steer DOWN hard so bird crashes into collision pipe
-        if (frame >= S2_START && frame < COLLISION_FRAME)
+        if (frame >= 100 && frame < COLLISION_FRAME)
         {
             birdVY = Math.Min(birdVY + 6f, 14f);
         }
