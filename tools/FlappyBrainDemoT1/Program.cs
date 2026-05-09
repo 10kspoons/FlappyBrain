@@ -291,6 +291,13 @@ for (int frame = 0; frame < TOTAL_FRAMES; frame++)
     if (frame == S1_END) score = 5;
     if (frame == 460) score = 5; // entering section 2
 
+    // Reset bird at start of S2 attempt
+    if (frame == S2_START)
+    {
+        birdY = 280f;
+        birdVY = 0f;
+    }
+
     // Clear stains at frame 675 (per spec)
     if (frame == RETRY_END)
     {
