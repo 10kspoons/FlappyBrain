@@ -1,4 +1,4 @@
 using FlappyBrain;
 
-using var game = new FlappyBrainGame();
+using var game = new FlappyBrainGameV2();
 game.Run();
