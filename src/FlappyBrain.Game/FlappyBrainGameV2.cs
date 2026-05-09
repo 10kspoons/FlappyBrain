@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -95,7 +96,10 @@ public class FlappyBrainGameV2 : Game
     readonly Random _goreRng = new();
 
     bool _aiMode;
-    public FlappyBrainGameV2(bool aiMode = false)
+    bool _learnedMode;
+    float[,]? _qTable;
+
+    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false)
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -108,7 +112,40 @@ public class FlappyBrainGameV2 : Game
         IsFixedTimeStep = true;
         TargetElapsedTime = TimeSpan.FromSeconds(1.0 / 60.0);
         _aiMode = aiMode;
+        _learnedMode = learnedMode;
+        if (_learnedMode)
+        {
+            _qTable = TryLoadQTable();
+            if (_qTable == null)
+            {
+                Console.WriteLine("[--ai-learned] qtable.bin not found, falling back to geometry controller");
+                _learnedMode = false;
+            }
+            else
+            {
+                Console.WriteLine("[--ai-learned] loaded Q-table");
+            }
+        }
         Window.Title = "Flappy Brain V2 — 20 Sections of Pain";
+    }
+
+    static float[,]? TryLoadQTable()
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "qtable.bin");
+        if (!File.Exists(path)) return null;
+        try
+        {
+            using var fs = File.OpenRead(path);
+            using var br = new BinaryReader(fs);
+            int stateCount = br.ReadInt32();
+            int actionCount = br.ReadInt32();
+            var q = new float[stateCount, actionCount];
+            for (int i = 0; i < stateCount; i++)
+                for (int a = 0; a < actionCount; a++)
+                    q[i, a] = br.ReadSingle();
+            return q;
+        }
+        catch { return null; }
     }
 
     protected override void Initialize()
@@ -1041,8 +1078,66 @@ public class FlappyBrainGameV2 : Game
     int _aiDebugFrame = 0;
 
 
+    // ===== Q-table state binning (must match FlappyBrain.Learning) =====
+    const int QL_BIRD_Y_BINS   = 20;
+    const int QL_BIRD_VEL_BINS = 16;
+    const int QL_GAP_CTR_BINS  = 15;
+    const int QL_DIST_BINS     = 10;
+    const float QL_HITBOX_INSET = 4f;
+
+    static int QlBinBirdY(float y)     => Math.Clamp((int)(y / 30f), 0, QL_BIRD_Y_BINS - 1);
+    static int QlBinBirdVel(float v)   => Math.Clamp((int)((v + 9f) / 1.5f), 0, QL_BIRD_VEL_BINS - 1);
+    static int QlBinGapCenter(float g) => Math.Clamp((int)(g / 40f), 0, QL_GAP_CTR_BINS - 1);
+    static int QlBinDist(float d)      => Math.Clamp((int)(d / 80f), 0, QL_DIST_BINS - 1);
+
+    static int QlStateIndex(float y, float vel, float gapC, float dist) =>
+        QlBinBirdY(y) * (QL_BIRD_VEL_BINS * QL_GAP_CTR_BINS * QL_DIST_BINS) +
+        QlBinBirdVel(vel) * (QL_GAP_CTR_BINS * QL_DIST_BINS) +
+        QlBinGapCenter(gapC) * QL_DIST_BINS +
+        QlBinDist(dist);
+
+    bool AiShouldFlapLearned()
+    {
+        // Find pipe overlapping bird (preferred), or next ahead
+        float birdLeft = _birdX - BIRD_WIDTH / 2f + QL_HITBOX_INSET;
+        float birdRight = _birdX + BIRD_WIDTH / 2f - QL_HITBOX_INSET;
+
+        Pipe? inside = null;
+        foreach (var p in _pipes)
+        {
+            float pL = p.X, pR = p.X + PIPE_W;
+            if (pR > birdLeft && pL < birdRight)
+            {
+                if (inside == null || p.X < inside.X) inside = p;
+            }
+        }
+
+        Pipe? next = null;
+        if (inside == null)
+        {
+            float bestX = float.MaxValue;
+            foreach (var p in _pipes)
+            {
+                if (p.X >= birdRight && p.X < bestX)
+                {
+                    next = p;
+                    bestX = p.X;
+                }
+            }
+        }
+
+        var primary = inside ?? next;
+        float gapC = primary?.GapY ?? (LogH / 2f);
+        float dist = primary != null ? MathF.Max(0f, primary.X - _birdX) : LogW;
+
+        int state = QlStateIndex(_birdY, _birdVel, gapC, dist);
+        return _qTable![state, 1] > _qTable[state, 0];
+    }
+
     bool AiShouldFlap()
     {
+        if (_learnedMode && _qTable != null) return AiShouldFlapLearned();
+
         _aiDebugFrame++;
 
         // Find nearest upcoming pipe
