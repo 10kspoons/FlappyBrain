@@ -188,10 +188,10 @@ public class FlappyBrainGameV2 : Game
 
     void PreGenerateSectionLayout()
     {
-        var rng = new Random(RNG_SEED);
         _sectionPipes = new float[TOTAL_SECTIONS][];
         for (int s = 0; s < TOTAL_SECTIONS; s++)
         {
+            var rng = new Random(RNG_SEED + s);
             float spawnInt = SectionSpawnInt(s);
             int count = (int)MathF.Ceiling(SECTION_DURATION / spawnInt) + 2;
             var arr = new float[count];
