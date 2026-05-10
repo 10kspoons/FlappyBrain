@@ -208,7 +208,7 @@ public class FlappyBrainGameV2 : Game
 
     static float SectionSpeed(int s) => 160f + s * 16f;
     static float SectionGap(int s) => MathF.Max(100f, 210f - s * 5.5f);
-    static float SectionSpawnInt(int s) => MathF.Max(0.8f, 2.3f - s * 0.075f);
+    static float SectionSpawnInt(int s) => MathF.Max(0.8f, 4.6f - s * 0.2f);
 
     void ResetToMenu()
     {
