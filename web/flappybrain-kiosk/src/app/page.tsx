@@ -1,3 +1,4 @@
+import Link from 'next/link'
 import Leaderboard from '@/components/Leaderboard'
 import StartButton from '@/components/StartButton'
 import AutoRefresh from '@/components/AutoRefresh'
@@ -27,7 +28,13 @@ export default function HomePage() {
     <main className="relative min-h-screen w-full flex flex-col items-center px-4 py-6 md:py-10 gap-6">
       <AutoRefresh intervalMs={10000} />
 
-      <header className="w-full max-w-5xl flex flex-col items-center gap-2">
+      <header className="w-full max-w-5xl flex flex-col items-center gap-2 relative">
+        <Link
+          href="/control"
+          className="absolute right-0 top-0 font-arcade text-[10px] text-white/40 hover:text-cyan-neon tracking-widest transition-colors"
+        >
+          ⚙ OPERATOR
+        </Link>
         <h1 className="font-arcade text-3xl md:text-5xl text-cyan-neon tracking-widest text-center">
           FLAPPY<span className="text-amber-hot">BRAIN</span>
         </h1>

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import ServiceWorkerRegistration from '@/components/ServiceWorkerRegistration'
 import InstallPrompt from '@/components/InstallPrompt'
+import PasswordGate from '@/components/PasswordGate'
 
 export const metadata: Metadata = {
   title: 'FlappyBrain Kiosk',
@@ -39,7 +40,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body className='min-h-screen'>
         <ServiceWorkerRegistration />
         <InstallPrompt />
-        {children}
+        <PasswordGate>{children}</PasswordGate>
       </body>
     </html>
   )

@@ -1,6 +1,11 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
@@ -37,10 +42,26 @@ public class FlappyBrainGameV2 : Game
     const float PIPE_W = 90f;
 
     // ===== State machine =====
-    enum GameState { Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory }
+    enum GameState { Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory, Paused, Leaderboard, Training }
 
-    GameState _state = GameState.Menu;
+    GameState _state = GameState.Leaderboard;
     float _stateTimer = 0f;
+    float _leaderboardScroll = 0f;
+    float _leaderboardTitlePulse = 0f;
+    float _gameOverHoldTimer = 0f;
+
+    // ===== HTTP control server =====
+    enum GameCommand { Start, Pause, Stop, Train }
+    readonly ConcurrentQueue<(GameCommand Cmd, string? Player)> _commandQueue = new();
+    HttpListener? _httpListener;
+    CancellationTokenSource? _httpCts;
+    Task? _httpTask;
+    volatile bool _trainingRequested = false;
+    string? _pendingPlayerName = null;
+
+    // ===== Session leaderboard =====
+    readonly List<(string Name, int Score)> _sessionScores = new();
+    string _currentPlayerName = "PLAYER";
 
     // ===== Section state =====
     int _currentSection = 0;
@@ -165,9 +186,153 @@ public class FlappyBrainGameV2 : Game
     protected override void Initialize()
     {
         PreGenerateSectionLayout();
-        ResetToMenu();
+        ResetToLeaderboard();
+        StartHttpControlServer();
         base.Initialize();
     }
+
+    protected override void UnloadContent()
+    {
+        StopHttpControlServer();
+        base.UnloadContent();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        StopHttpControlServer();
+        base.Dispose(disposing);
+    }
+
+    void StartHttpControlServer()
+    {
+        try
+        {
+            _httpListener = new HttpListener();
+            _httpListener.Prefixes.Add("http://localhost:5001/");
+            _httpListener.Prefixes.Add("http://127.0.0.1:5001/");
+            // Listen on all interfaces too — needed for PWA on phones/tablets to reach the game machine.
+            try { _httpListener.Prefixes.Add("http://+:5001/"); } catch { /* may require admin on Windows; localhost still works */ }
+            _httpListener.Start();
+            _httpCts = new CancellationTokenSource();
+            _httpTask = Task.Run(() => HttpListenerLoop(_httpCts.Token));
+            Console.WriteLine("[http] control server listening on :5001");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"[http] failed to start control server: {ex.Message}");
+            _httpListener = null;
+        }
+    }
+
+    void StopHttpControlServer()
+    {
+        try
+        {
+            _httpCts?.Cancel();
+            _httpListener?.Stop();
+            _httpListener?.Close();
+        }
+        catch { }
+        _httpListener = null;
+    }
+
+    async Task HttpListenerLoop(CancellationToken ct)
+    {
+        while (_httpListener != null && _httpListener.IsListening && !ct.IsCancellationRequested)
+        {
+            HttpListenerContext ctx;
+            try { ctx = await _httpListener.GetContextAsync().ConfigureAwait(false); }
+            catch { break; }
+
+            _ = Task.Run(() => HandleHttpRequest(ctx));
+        }
+    }
+
+    void HandleHttpRequest(HttpListenerContext ctx)
+    {
+        try
+        {
+            var req = ctx.Request;
+            var res = ctx.Response;
+
+            res.Headers["Access-Control-Allow-Origin"] = "*";
+            res.Headers["Access-Control-Allow-Methods"] = "POST, OPTIONS";
+            res.Headers["Access-Control-Allow-Headers"] = "Content-Type";
+
+            if (req.HttpMethod == "OPTIONS")
+            {
+                res.StatusCode = 200;
+                res.Close();
+                return;
+            }
+
+            string path = req.Url?.AbsolutePath?.ToLowerInvariant() ?? "/";
+
+            if (req.HttpMethod != "POST")
+            {
+                WriteJson(res, 405, "{\"ok\":false,\"error\":\"method not allowed\"}");
+                return;
+            }
+
+            string? playerName = null;
+            try
+            {
+                if (req.HasEntityBody)
+                {
+                    using var reader = new StreamReader(req.InputStream, req.ContentEncoding ?? Encoding.UTF8);
+                    string body = reader.ReadToEnd();
+                    if (!string.IsNullOrWhiteSpace(body))
+                    {
+                        const string key = "\"player\"";
+                        int idx = body.IndexOf(key, StringComparison.OrdinalIgnoreCase);
+                        if (idx >= 0)
+                        {
+                            int colon = body.IndexOf(':', idx + key.Length);
+                            int q1 = body.IndexOf('"', colon + 1);
+                            int q2 = q1 >= 0 ? body.IndexOf('"', q1 + 1) : -1;
+                            if (q1 >= 0 && q2 > q1) playerName = body.Substring(q1 + 1, q2 - q1 - 1);
+                        }
+                    }
+                }
+            }
+            catch { /* body parse failures fall through with null name */ }
+
+            GameCommand? cmd = path switch
+            {
+                "/control/start" => GameCommand.Start,
+                "/control/pause" => GameCommand.Pause,
+                "/control/stop"  => GameCommand.Stop,
+                "/control/train" => GameCommand.Train,
+                _ => null,
+            };
+
+            if (cmd == null)
+            {
+                WriteJson(res, 404, "{\"ok\":false,\"error\":\"unknown route\"}");
+                return;
+            }
+
+            _commandQueue.Enqueue((cmd.Value, playerName));
+            WriteJson(res, 200, "{\"ok\":true}");
+        }
+        catch (Exception ex)
+        {
+            try { WriteJson(ctx.Response, 500, "{\"ok\":false,\"error\":\"" + JsonEscape(ex.Message) + "\"}"); } catch { }
+        }
+    }
+
+    static void WriteJson(HttpListenerResponse res, int status, string body)
+    {
+        res.StatusCode = status;
+        res.ContentType = "application/json";
+        var bytes = Encoding.UTF8.GetBytes(body);
+        res.ContentLength64 = bytes.Length;
+        res.OutputStream.Write(bytes, 0, bytes.Length);
+        res.Close();
+    }
+
+    static string JsonEscape(string s) =>
+        (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", " ").Replace("\r", " ");
 
     protected override void LoadContent()
     {
@@ -231,6 +396,23 @@ public class FlappyBrainGameV2 : Game
         _birdRot = 0;
     }
 
+    void ResetToLeaderboard()
+    {
+        ResetToMenu();
+        _state = GameState.Leaderboard;
+        _stateTimer = 0;
+        _gameOverHoldTimer = 0;
+    }
+
+    void RecordSessionScore()
+    {
+        if (_totalScore <= 0) return;
+        var name = string.IsNullOrWhiteSpace(_currentPlayerName) ? "PLAYER" : _currentPlayerName;
+        _sessionScores.Add((name, _totalScore));
+        _sessionScores.Sort((a, b) => b.Score.CompareTo(a.Score));
+        if (_sessionScores.Count > 20) _sessionScores.RemoveRange(20, _sessionScores.Count - 20);
+    }
+
     void StartSection(int section, bool isRetry)
     {
         _currentSection = section;
@@ -258,34 +440,64 @@ public class FlappyBrainGameV2 : Game
 
         if (kb.IsKeyDown(Keys.Escape)) Exit();
 
+        // Drain HTTP command queue on the game thread
+        while (_commandQueue.TryDequeue(out var c))
+        {
+            ProcessCommand(c.Cmd, c.Player);
+        }
+
+        if (_trainingRequested)
+        {
+            _trainingRequested = false;
+            StartTraining();
+        }
+
         bool flapPressed = (kb.IsKeyDown(Keys.Space) && _prevKb.IsKeyUp(Keys.Space)) ||
                            (kb.IsKeyDown(Keys.Up) && _prevKb.IsKeyUp(Keys.Up));
         bool restartPressed = kb.IsKeyDown(Keys.R) && _prevKb.IsKeyUp(Keys.R);
+        bool pausePressed = kb.IsKeyDown(Keys.P) && _prevKb.IsKeyUp(Keys.P);
 
         if (restartPressed)
         {
-            ResetToMenu();
+            ResetToLeaderboard();
             _prevKb = kb;
             base.Update(gameTime);
             return;
         }
 
+        if (pausePressed)
+        {
+            TogglePause();
+        }
+
         _stateTimer += dt;
+        _leaderboardTitlePulse += dt;
 
         switch (_state)
         {
+            case GameState.Leaderboard:
+                _leaderboardScroll += dt * 30f; // slow continuous parallax scroll
+                if (flapPressed)
+                {
+                    BeginGameRun();
+                }
+                break;
+
             case GameState.Menu:
                 if (_aiMode) flapPressed = true; // auto-start
                 if (flapPressed)
                 {
-                    _totalScore = 0;
-                    StartSection(0, false);
+                    BeginGameRun();
                 }
                 break;
 
             case GameState.Playing:
                 if (_aiMode) flapPressed = AiShouldFlap();
                 UpdatePlaying(dt, flapPressed);
+                break;
+
+            case GameState.Paused:
+                // freeze update loop; nothing advances
                 break;
 
             case GameState.GoreAnimation:
@@ -299,9 +511,11 @@ public class FlappyBrainGameV2 : Game
 
             case GameState.SectionRetry:
                 UpdateGore(dt); // gore continues to settle
-                if (_stateTimer >= 1.0f)
+                _gameOverHoldTimer += dt;
+                if (_gameOverHoldTimer >= 5.0f)
                 {
-                    StartSection(_currentSection, true);
+                    RecordSessionScore();
+                    ResetToLeaderboard();
                 }
                 break;
 
@@ -329,9 +543,18 @@ public class FlappyBrainGameV2 : Game
 
             case GameState.Victory:
                 UpdateConfetti(dt);
-                if (flapPressed)
+                if (flapPressed || _stateTimer >= 8.0f)
                 {
-                    ResetToMenu();
+                    RecordSessionScore();
+                    ResetToLeaderboard();
+                }
+                break;
+
+            case GameState.Training:
+                _leaderboardScroll += dt * 15f;
+                if (_stateTimer >= 30f)
+                {
+                    ResetToLeaderboard();
                 }
                 break;
         }
@@ -340,6 +563,68 @@ public class FlappyBrainGameV2 : Game
 
         _prevKb = kb;
         base.Update(gameTime);
+    }
+
+    void BeginGameRun()
+    {
+        if (!string.IsNullOrWhiteSpace(_pendingPlayerName))
+        {
+            _currentPlayerName = _pendingPlayerName!.Trim();
+            _pendingPlayerName = null;
+        }
+        _totalScore = 0;
+        _gameOverHoldTimer = 0;
+        StartSection(0, false);
+    }
+
+    void TogglePause()
+    {
+        if (_state == GameState.Playing)
+        {
+            _state = GameState.Paused;
+        }
+        else if (_state == GameState.Paused)
+        {
+            _state = GameState.Playing;
+        }
+    }
+
+    void ProcessCommand(GameCommand cmd, string? player)
+    {
+        switch (cmd)
+        {
+            case GameCommand.Start:
+                if (!string.IsNullOrWhiteSpace(player)) _pendingPlayerName = player;
+                if (_state == GameState.Paused) { _state = GameState.Playing; break; }
+                if (_state == GameState.Leaderboard || _state == GameState.Menu || _state == GameState.Victory || _state == GameState.SectionRetry || _state == GameState.Training)
+                {
+                    BeginGameRun();
+                }
+                break;
+
+            case GameCommand.Pause:
+                TogglePause();
+                break;
+
+            case GameCommand.Stop:
+                if (_state == GameState.Playing || _state == GameState.Paused || _state == GameState.SectionTransition || _state == GameState.GoreAnimation || _state == GameState.SectionRetry)
+                {
+                    RecordSessionScore();
+                }
+                ResetToLeaderboard();
+                break;
+
+            case GameCommand.Train:
+                _trainingRequested = true;
+                break;
+        }
+    }
+
+    void StartTraining()
+    {
+        Console.WriteLine("[train] training requested — entering training mode (BCI calibration stub)");
+        _state = GameState.Training;
+        _stateTimer = 0;
     }
 
     void UpdatePlaying(float dt, bool flapPressed)
@@ -453,6 +738,7 @@ public class FlappyBrainGameV2 : Game
     {
         _state = GameState.GoreAnimation;
         _stateTimer = 0;
+        _gameOverHoldTimer = 0;
         _deathX = _birdX;
         _deathY = MathHelper.Clamp(_birdY, 0, LogH);
         SpawnGoreParticles(_deathX, _deathY);
@@ -650,6 +936,17 @@ public class FlappyBrainGameV2 : Game
     {
         GraphicsDevice.Clear(_outbackTheme ? new Color(0x1A, 0x0F, 0x08) : new Color(0x6E, 0xC8, 0xE6));
 
+        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+
+        if (_state == GameState.Leaderboard || _state == GameState.Training)
+        {
+            DrawLeaderboardScene();
+            if (_state == GameState.Training) DrawTrainingOverlay();
+            _spriteBatch.End();
+            base.Draw(gameTime);
+            return;
+        }
+
         // Compute screen shake offset
         Vector2 shake = Vector2.Zero;
         if (_state == GameState.GoreAnimation)
@@ -658,13 +955,11 @@ public class FlappyBrainGameV2 : Game
             shake = new Vector2(MathF.Sin(_stateTimer * 80f) * amt, MathF.Cos(_stateTimer * 70f) * amt);
         }
 
-        _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
-
         DrawSky(shake);
         DrawGround(shake);
 
         // Pipes
-        if (_state == GameState.Playing || _state == GameState.GoreAnimation ||
+        if (_state == GameState.Playing || _state == GameState.Paused || _state == GameState.GoreAnimation ||
             _state == GameState.SectionRetry || _state == GameState.SectionTransition)
         {
             foreach (var p in _pipes) DrawPipe(p, shake);
@@ -697,6 +992,7 @@ public class FlappyBrainGameV2 : Game
         {
             case GameState.Menu: DrawMenu(); break;
             case GameState.Playing: DrawHud(); break;
+            case GameState.Paused: DrawHud(); DrawPauseOverlay(); break;
             case GameState.GoreAnimation: DrawGoreOverlay(); DrawHud(); break;
             case GameState.SectionRetry: DrawRetryOverlay(); break;
             case GameState.SectionTransition: DrawTransitionOverlay(); DrawHud(); break;
@@ -705,6 +1001,206 @@ public class FlappyBrainGameV2 : Game
 
         _spriteBatch.End();
         base.Draw(gameTime);
+    }
+
+    void DrawPauseOverlay()
+    {
+        DrawRect(0, 0, LogW, LogH, Color.Black * 0.55f);
+        DrawBigText("* PAUSED *", LogW / 2f, LogH / 2f - 30, 64, new Color(0xFF, 0xD0, 0x40), centered: true, outline: true);
+        DrawBigText("PRESS P OR RESUME FROM CONSOLE", LogW / 2f, LogH / 2f + 40, 20, Color.White, centered: true, outline: true);
+    }
+
+    void DrawTrainingOverlay()
+    {
+        DrawRect(0, 0, LogW, LogH, Color.Black * 0.65f);
+        DrawBigText("TRAINING MODE", LogW / 2f, LogH / 2f - 60, 56, new Color(0xC0, 0x80, 0xFF), centered: true, outline: true);
+        DrawBigText("FOLLOW HEADSET INSTRUCTIONS", LogW / 2f, LogH / 2f + 10, 22, Color.White, centered: true, outline: true);
+        float secLeft = MathF.Max(0, 30f - _stateTimer);
+        DrawBigText($"{secLeft:F0}S REMAINING", LogW / 2f, LogH / 2f + 50, 18, new Color(0xFF, 0xD0, 0x40), centered: true);
+    }
+
+    void DrawLeaderboardScene()
+    {
+        // Scrolling parallax background using outback palette regardless of theme — looks more cinematic for idle.
+        DrawLeaderboardSky();
+        DrawLeaderboardSkyline();
+        DrawLeaderboardGround();
+
+        // Translucent vignette panel behind text for legibility
+        DrawRect(0, 0, LogW, LogH, new Color(0x05, 0x05, 0x08) * 0.55f);
+        DrawRect(LogW * 0.08f, 70, LogW * 0.84f, LogH - 130, new Color(0x10, 0x06, 0x02) * 0.55f);
+
+        // Title pulse 0.7..1.0 over 2s
+        float t = (MathF.Sin(_leaderboardTitlePulse * MathF.PI) + 1f) * 0.5f;
+        float titleA = 0.7f + t * 0.3f;
+        var amber = new Color(0xFF, 0xD0, 0x40);
+        var cyan = new Color(0x00, 0xFF, 0xE5);
+
+        DrawBigText("FLAPPY BRAIN", LogW / 2f, 100, 64, amber * titleA, centered: true, outline: true);
+        DrawBigText("FOCUS TO FLY  -  BCI ARCADE", LogW / 2f, 170, 18, Color.White * 0.85f, centered: true, outline: true);
+
+        // Separator
+        float sepY = 210;
+        DrawRect(LogW * 0.18f, sepY, LogW * 0.64f, 2, amber * 0.7f);
+        DrawRect(LogW * 0.18f, sepY + 4, LogW * 0.64f, 1, amber * 0.3f);
+
+        DrawBigText("TOP SCORES", LogW / 2f, 235, 28, cyan, centered: true, outline: true);
+
+        // Score rows
+        if (_sessionScores.Count == 0)
+        {
+            DrawBigText("BE THE FIRST TO PLAY!", LogW / 2f, 350, 32, Color.White * (0.7f + t * 0.3f), centered: true, outline: true);
+        }
+        else
+        {
+            int max = Math.Min(10, _sessionScores.Count);
+            float rowY = 290;
+            float rowH = 26;
+            for (int i = 0; i < max; i++)
+            {
+                var entry = _sessionScores[i];
+                float y = rowY + i * rowH;
+                bool top = (i == 0);
+                var rankCol = amber;
+                var nameCol = top ? new Color(0xFF, 0xD7, 0x00) : Color.White;
+                var dotCol = new Color(0x80, 0x60, 0x30);
+                var scoreCol = top ? new Color(0xFF, 0xD7, 0x00) : cyan;
+
+                string rank = $"{i + 1,2}.";
+                string name = SanitizeName(entry.Name).ToUpperInvariant();
+                if (name.Length > 18) name = name.Substring(0, 18);
+                string scoreText = $"{entry.Score} PTS";
+
+                // Rank
+                float xLeft = LogW * 0.18f;
+                DrawBigText(rank, xLeft, y, 18, rankCol, centered: false, outline: true);
+                // Name
+                DrawBigText(name, xLeft + 50, y, 18, nameCol, centered: false, outline: true);
+                // Score (right-aligned approximation)
+                float xRight = LogW * 0.82f;
+                DrawBigText(scoreText, xRight - scoreText.Length * 19, y, 18, scoreCol, centered: false, outline: true);
+                // Dots filling between name end and score start
+                float dotsStart = xLeft + 50 + name.Length * 19 + 8;
+                float dotsEnd = xRight - scoreText.Length * 19 - 8;
+                for (float dx = dotsStart; dx < dotsEnd; dx += 12)
+                {
+                    DrawRect(dx, y + 16, 3, 3, dotCol);
+                }
+            }
+        }
+
+        // Bottom prompt
+        string prompt = "PRESS SPACE TO START";
+        float promptA = 0.65f + t * 0.35f;
+        DrawBigText(prompt, LogW / 2f, LogH - 70, 26, cyan * promptA, centered: true, outline: true);
+        DrawBigText("OR USE OPERATOR CONSOLE", LogW / 2f, LogH - 38, 14, Color.White * 0.5f, centered: true);
+    }
+
+    static string SanitizeName(string n)
+    {
+        if (string.IsNullOrWhiteSpace(n)) return "PLAYER";
+        var sb = new StringBuilder();
+        foreach (var ch in n)
+        {
+            char up = char.ToUpperInvariant(ch);
+            if ((up >= 'A' && up <= 'Z') || (up >= '0' && up <= '9') || up == ' ' || up == '.' || up == '-')
+                sb.Append(up);
+        }
+        var s = sb.ToString().Trim();
+        return s.Length == 0 ? "PLAYER" : s;
+    }
+
+    void DrawLeaderboardSky()
+    {
+        // Far gradient
+        var c1 = new Color(0x1A, 0x0F, 0x08);
+        var c2 = new Color(0x6B, 0x30, 0x20);
+        var c3 = new Color(0xC4, 0x62, 0x2D);
+        int skyH = LogH - 70;
+        for (int y = 0; y < skyH; y++)
+        {
+            float t = y / (float)skyH;
+            Color c = t < 0.55f
+                ? Color.Lerp(c1, c2, t / 0.55f)
+                : Color.Lerp(c2, c3, (t - 0.55f) / 0.45f);
+            DrawRect(0, y, LogW, 1, c);
+        }
+        // Drifting dust particles (slow parallax layer 1)
+        var rng = new Random(101);
+        for (int i = 0; i < 60; i++)
+        {
+            float baseX = rng.NextSingle() * LogW * 2f;
+            float px = (baseX - _leaderboardScroll * (0.2f + rng.NextSingle() * 0.5f)) % (LogW * 2f);
+            if (px < 0) px += LogW * 2f;
+            if (px > LogW) continue;
+            float py = 30 + rng.NextSingle() * 460;
+            float sz = 1.5f + rng.NextSingle() * 2.5f;
+            DrawRect(px, py, sz, sz, new Color(0xD4, 0x95, 0x6A) * 0.4f);
+        }
+    }
+
+    void DrawLeaderboardSkyline()
+    {
+        // Mid-layer parallax: ruined city silhouette scrolling faster
+        float offset = (_leaderboardScroll * 0.6f) % (LogW * 2f);
+        var col = new Color(0x2A, 0x15, 0x08) * 0.92f;
+        int[] widths  = { 40, 25, 55, 30, 70, 20, 45, 35, 50, 28 };
+        int[] heights = { 180, 120, 220, 140, 160, 90, 200, 130, 175, 110 };
+        int x = -200;
+        for (int i = 0; i < widths.Length * 3; i++)
+        {
+            int idx = i % widths.Length;
+            int bx = (int)(x - offset + LogW);
+            if (bx > -80 && bx < LogW + 20)
+            {
+                int by = LogH - 70 - heights[idx];
+                DrawRect(bx, by, widths[idx], heights[idx], col);
+                // Broken antenna
+                DrawRect(bx + widths[idx] - 8, by - 18, 4, 18, col);
+            }
+            x += widths[idx] + 12;
+        }
+
+        // Front layer: smaller ruins scrolling fastest
+        float offset2 = (_leaderboardScroll * 1.4f) % (LogW * 2f);
+        var col2 = new Color(0x1A, 0x09, 0x04);
+        int[] w2 = { 28, 18, 36, 22, 48, 16, 32 };
+        int[] h2 = { 80, 50, 100, 60, 70, 40, 90 };
+        int x2 = -120;
+        for (int i = 0; i < w2.Length * 4; i++)
+        {
+            int idx = i % w2.Length;
+            int bx = (int)(x2 - offset2 + LogW);
+            if (bx > -60 && bx < LogW + 20)
+            {
+                int by = LogH - 70 - h2[idx];
+                DrawRect(bx, by, w2[idx], h2[idx], col2);
+            }
+            x2 += w2[idx] + 6;
+        }
+    }
+
+    void DrawLeaderboardGround()
+    {
+        int groundY = LogH - 70;
+        for (int y = 0; y < 70; y++)
+        {
+            float t = y / 70f;
+            Color c = Color.Lerp(new Color(0x3A, 0x20, 0x10), new Color(0x12, 0x07, 0x03), t);
+            DrawRect(0, groundY + y, LogW, 1, c);
+        }
+        // Front rubble scrolls fastest
+        var rng = new Random(303);
+        for (int i = 0; i < 36; i++)
+        {
+            float baseX = rng.NextSingle() * LogW * 2f;
+            float rx = (baseX - _leaderboardScroll * 2.2f) % (LogW * 2f);
+            if (rx < 0) rx += LogW * 2f;
+            if (rx > LogW) continue;
+            int rw = 4 + (int)(rng.NextSingle() * 14);
+            int rh = 3 + (int)(rng.NextSingle() * 8);
+            DrawRect(rx, groundY + 3, rw, rh, new Color(0x2A, 0x15, 0x08));
+        }
     }
 
     void DrawSky(Vector2 shake)
@@ -890,8 +1386,10 @@ public class FlappyBrainGameV2 : Game
     void DrawRetryOverlay()
     {
         DrawRect(0, 0, LogW, LogH, Color.Black * 0.7f);
-        DrawBigText($"SECTION {_currentSection + 1} — RETRY", LogW / 2f, LogH / 2f - 20, 48, Color.White, centered: true, outline: true);
-        DrawBigText($"Attempt {_sectionAttempts + 1}", LogW / 2f, LogH / 2f + 30, 28, new Color(180, 180, 180), centered: true);
+        DrawBigText("GAME OVER", LogW / 2f, LogH / 2f - 50, 56, new Color(0xFF, 0x40, 0x40), centered: true, outline: true);
+        DrawBigText($"FINAL SCORE: {_totalScore}", LogW / 2f, LogH / 2f + 10, 28, new Color(0xFF, 0xD0, 0x40), centered: true, outline: true);
+        float wait = MathF.Max(0, 5f - _gameOverHoldTimer);
+        DrawBigText($"RETURN TO LEADERBOARD IN {wait:F0}S", LogW / 2f, LogH / 2f + 60, 18, Color.White * 0.8f, centered: true);
     }
 
     void DrawTransitionOverlay()
