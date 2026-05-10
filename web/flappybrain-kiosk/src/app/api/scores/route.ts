@@ -5,28 +5,38 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function GET() {
-  const top10 = getTopScores(10)
-  const recent = getMostRecentScore()
-  return NextResponse.json({ top10, recent })
+  try {
+    const top10 = getTopScores(10)
+    const recent = getMostRecentScore()
+    return NextResponse.json({ top10, recent })
+  } catch {
+    return NextResponse.json({ error: 'DB unavailable' }, { status: 503 })
+  }
 }
 
 export async function POST(request: NextRequest) {
+  let body: unknown
   try {
-    const body = await request.json()
-    const playerName = typeof body?.playerName === 'string' ? body.playerName.trim() : ''
-    const score = Number.isFinite(body?.score) ? Math.max(0, Math.floor(body.score)) : 0
-    const sectionsCompleted = Number.isFinite(body?.sectionsCompleted)
-      ? Math.max(0, Math.floor(body.sectionsCompleted))
-      : 0
+    body = await request.json()
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
+  }
 
-    if (!playerName) {
-      return NextResponse.json({ error: 'playerName is required' }, { status: 400 })
-    }
+  const b = body as { playerName?: unknown; score?: unknown; sectionsCompleted?: unknown }
+  const playerName = typeof b?.playerName === 'string' ? b.playerName.trim() : ''
+  const score = Number.isFinite(b?.score) ? Math.max(0, Math.floor(b.score as number)) : 0
+  const sectionsCompleted = Number.isFinite(b?.sectionsCompleted)
+    ? Math.max(0, Math.floor(b.sectionsCompleted as number))
+    : 0
 
+  if (!playerName) {
+    return NextResponse.json({ error: 'playerName is required' }, { status: 400 })
+  }
+
+  try {
     const inserted = insertScore(playerName, score, sectionsCompleted)
     return NextResponse.json(inserted)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to save score'
-    return NextResponse.json({ error: message }, { status: 500 })
+  } catch {
+    return NextResponse.json({ error: 'DB unavailable' }, { status: 503 })
   }
 }

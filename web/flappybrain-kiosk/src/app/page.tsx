@@ -1,14 +1,27 @@
 import Leaderboard from '@/components/Leaderboard'
 import StartButton from '@/components/StartButton'
 import AutoRefresh from '@/components/AutoRefresh'
-import { getCurrentPlayer, getMostRecentScore, getTopScores } from '@/lib/db'
+import {
+  getCurrentPlayer,
+  getMostRecentScore,
+  getTopScores,
+  type CurrentPlayer,
+  type Score,
+} from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
 export default function HomePage() {
-  const top10 = getTopScores(10)
-  const recent = getMostRecentScore()
-  const player = getCurrentPlayer()
+  let top10: Score[] = []
+  let recent: Score | null = null
+  let player: CurrentPlayer = { name: null, scanned_at: null }
+  try {
+    top10 = getTopScores(10)
+    recent = getMostRecentScore()
+    player = getCurrentPlayer()
+  } catch {
+    // DB temporarily unavailable — show empty state
+  }
 
   return (
     <main className="relative min-h-screen w-full flex flex-col items-center px-4 py-6 md:py-10 gap-6">

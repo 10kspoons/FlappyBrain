@@ -30,28 +30,39 @@ export function getDb(): Database.Database {
   }
 
   const dbPath = path.join(dataDir, 'flappybrain.db')
-  db = new Database(dbPath)
-  db.pragma('journal_mode = WAL')
+  let instance: Database.Database | null = null
+  try {
+    instance = new Database(dbPath)
+    instance.pragma('journal_mode = DELETE')
+    instance.pragma('busy_timeout = 5000')
+    instance.pragma('synchronous = NORMAL')
 
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS scores (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      player_name TEXT NOT NULL,
-      score INTEGER NOT NULL DEFAULT 0,
-      sections_completed INTEGER NOT NULL DEFAULT 0,
-      played_at TEXT NOT NULL DEFAULT (datetime('now'))
-    );
+    instance.exec(`
+      CREATE TABLE IF NOT EXISTS scores (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_name TEXT NOT NULL,
+        score INTEGER NOT NULL DEFAULT 0,
+        sections_completed INTEGER NOT NULL DEFAULT 0,
+        played_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
 
-    CREATE TABLE IF NOT EXISTS current_player (
-      id INTEGER PRIMARY KEY CHECK (id = 1),
-      name TEXT,
-      scanned_at TEXT
-    );
-  `)
+      CREATE TABLE IF NOT EXISTS current_player (
+        id INTEGER PRIMARY KEY CHECK (id = 1),
+        name TEXT,
+        scanned_at TEXT
+      );
+    `)
 
-  const seedRow = db.prepare('SELECT id FROM current_player WHERE id = 1').get()
-  if (!seedRow) {
-    db.prepare('INSERT INTO current_player (id, name, scanned_at) VALUES (1, NULL, NULL)').run()
+    const seedRow = instance.prepare('SELECT id FROM current_player WHERE id = 1').get()
+    if (!seedRow) {
+      instance.prepare('INSERT INTO current_player (id, name, scanned_at) VALUES (1, NULL, NULL)').run()
+    }
+
+    db = instance
+  } catch (err) {
+    instance?.close()
+    db = null
+    throw err
   }
 
   return db
