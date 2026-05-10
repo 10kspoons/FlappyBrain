@@ -22,7 +22,7 @@ const float DT = 1f / 60f;
 
 static float SectionSpeed(int s)    => 160f + s * 16f;
 static float SectionGap(int s)      => MathF.Max(100f, 210f - s * 5.5f);
-static float SectionSpawnInt(int s) => MathF.Max(0.8f, 2.3f - s * 0.075f);
+static float SectionSpawnInt(int s) => MathF.Max(0.8f, 4.6f - s * 0.2f);
 
 // ===== State discretization =====
 const int BIRD_Y_BINS    = 20; // 30px each
@@ -51,19 +51,19 @@ const float ALPHA         = 0.2f;
 const float GAMMA          = 0.95f;
 const float EPSILON_START  = 0.5f;
 const float EPSILON_END    = 0.01f;
-const int   EPISODES       = 300_000;
+const int   EPISODES       = 800_000;
 const float EPSILON_DECAY  = (EPSILON_START - EPSILON_END) / (EPISODES * 0.7f);
 
 const float REWARD_PIPE_CLEAR    =  20f;
 const float REWARD_SECTION_CLEAR = 100f;
-const float REWARD_DEATH         = -50f;
-const float REWARD_ALIVE         =  0.2f;
+const float REWARD_DEATH         = -100f;
+const float REWARD_ALIVE         =  0.5f;
 
 // ===== Pre-generate pipe layout (matches the game and SimTest) =====
-var layoutRng = new Random(SEED);
 var sectionPipes = new float[TOTAL_SECTIONS][];
 for (int s = 0; s < TOTAL_SECTIONS; s++)
 {
+    var layoutRng = new Random(SEED + s);
     float spawnInt = SectionSpawnInt(s);
     int count = (int)MathF.Ceiling(SECTION_DURATION / spawnInt) + 2;
     var arr = new float[count];
@@ -93,15 +93,22 @@ for (int ep = 0; ep < EPISODES; ep++)
 {
     // Curriculum: gradually expand start-section range so the agent encounters
     // every section with non-trivial frequency, not just section 0.
+    // Heavily bias toward sections 0-3 since the test starts there.
     int startSection;
-    if (ep < 30_000)
+    if (ep < 100_000)
         startSection = 0;
-    else if (ep < 80_000)
-        startSection = rng.Next(0, 5);
-    else if (ep < 160_000)
-        startSection = rng.Next(0, 12);
-    else
+    else if (ep < 250_000)
+        startSection = rng.Next(0, 4);
+    else if (ep < 450_000)
+        startSection = rng.Next(0, 8);
+    else if (ep < 650_000)
         startSection = rng.Next(0, TOTAL_SECTIONS);
+    else
+    {
+        // Final phase: 60% on sections 0-3 (the targets), 40% on rest
+        if (rng.NextDouble() < 0.6) startSection = rng.Next(0, 4);
+        else startSection = rng.Next(0, TOTAL_SECTIONS);
+    }
 
     int score = RunEpisode(startSection, training: true);
 
@@ -244,7 +251,18 @@ int RunEpisode(int startSection, bool training)
         }
         else
         {
-            action = Q[state, 1] > Q[state, 0] ? 1 : 0;
+            // Tie-breaker: when Q-values are equal (untrained state), prefer FLAP
+            // if bird is below center or falling fast. This prevents the floor
+            // death-spiral in unexplored states (especially during long inter-pipe
+            // gaps in early sections).
+            if (Q[state, 1] > Q[state, 0]) action = 1;
+            else if (Q[state, 1] < Q[state, 0]) action = 0;
+            else
+            {
+                // Tie: heuristic — flap if below mid-screen and not flying upward
+                if (birdY > LOG_H / 2f && birdVY > -2f) action = 1;
+                else action = 0;
+            }
         }
 
         if (training) visitCounts[state]++;
@@ -258,7 +276,7 @@ int RunEpisode(int startSection, bool training)
         birdY += birdVY;
 
         // World bounds death
-        bool died = (birdY < 0 || birdY > LOG_H);
+        bool died = (birdY < 10 || birdY > LOG_H - 60);
 
         // Move pipes
         if (!died)
@@ -295,6 +313,32 @@ int RunEpisode(int startSection, bool training)
 
         // Compute reward
         float reward = REWARD_ALIVE + newPipesScored * REWARD_PIPE_CLEAR;
+
+        // Shaping: penalize being close to floor/ceiling, bonus near gap target.
+        // Especially important in early sections where pipes are spaced far apart
+        // and the bird must hover for seconds between obstacles.
+        if (!died)
+        {
+            // Find the gap target the bird should track (next pipe or screen center)
+            float gapTarget = LOG_H / 2f;
+            float minDist = float.MaxValue;
+            foreach (var p in pipes)
+            {
+                if (p.X + PIPE_W >= birdX)
+                {
+                    float d = p.X - birdX;
+                    if (d < minDist) { minDist = d; gapTarget = p.GapY; }
+                }
+            }
+            float yErr = MathF.Abs(birdY - gapTarget);
+            // Negative shaping proportional to how off-target we are; max ~-0.3
+            reward -= (yErr / LOG_H) * 0.6f;
+
+            // Strong proximity-to-edge penalty (death zone is y<10 or y>540)
+            if (birdY < 60f) reward -= 0.5f;
+            else if (birdY > LOG_H - 110f) reward -= 0.5f;
+        }
+
         if (died) reward = REWARD_DEATH;
         else if (sectionComplete) reward += REWARD_SECTION_CLEAR;
 
