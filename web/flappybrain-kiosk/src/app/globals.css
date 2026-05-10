@@ -76,3 +76,26 @@ button {
     transparent 3px
   );
 }
+
+@media (orientation: portrait) {
+  html::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: #0a0a0f;
+    z-index: 9999;
+  }
+  html::after {
+    content: '↻  Rotate your device';
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 10000;
+    color: #00ffe5;
+    font-family: monospace;
+    font-size: 1.2rem;
+    text-align: center;
+    pointer-events: none;
+  }
+}
