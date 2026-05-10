@@ -1,0 +1,14 @@
+services:
+  kiosk:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - kiosk_data:/data
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATA_DIR=/data
+    restart: unless-stopped
+
+volumes:
+  kiosk_data:

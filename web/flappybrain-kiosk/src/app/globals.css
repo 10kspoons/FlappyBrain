@@ -1,0 +1,78 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html, body {
+  background: #0a0a0f;
+  color: #ffffff;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  margin: 0;
+  padding: 0;
+  min-height: 100%;
+}
+
+body {
+  font-family: Inter, system-ui, sans-serif;
+  background-color: #0a0a0f;
+  background-image:
+    radial-gradient(ellipse at top, rgba(0, 255, 229, 0.06), transparent 60%),
+    radial-gradient(ellipse at bottom, rgba(255, 184, 0, 0.04), transparent 60%);
+  background-attachment: fixed;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
+
+button {
+  font-family: inherit;
+}
+
+@keyframes start-pulse {
+  0%, 100% {
+    box-shadow: 0 0 12px rgba(0, 255, 229, 0.6), 0 0 28px rgba(0, 255, 229, 0.4);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(0, 255, 229, 0.95), 0 0 60px rgba(0, 255, 229, 0.7);
+    transform: scale(1.02);
+  }
+}
+
+.start-pulse {
+  animation: start-pulse 1.6s ease-in-out infinite;
+}
+
+.scanlines {
+  position: relative;
+}
+
+.scanlines::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.18) 0px,
+    rgba(0, 0, 0, 0.18) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+}
