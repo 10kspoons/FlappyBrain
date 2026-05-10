@@ -22,9 +22,9 @@ public class FlappyBrainGameV2 : Game
     const int RNG_SEED = 20260509;
 
     // ===== Bird physics =====
-    const float GRAVITY = 0.40f;
-    const float FLAP = -8.5f;
-    const float TERMINAL = 14f;
+    const float GRAVITY = 0.15f;
+    const float FLAP = -6.5f;
+    const float TERMINAL = 10f;
     const float BIRD_WIDTH = 40f;
     const float BIRD_HEIGHT = 36f;
     // Outback theme uses the large koala sprite (160x130) — hitbox ~70% of visual
@@ -1149,16 +1149,16 @@ public class FlappyBrainGameV2 : Game
 
 
     // ===== Q-table state binning (must match FlappyBrain.Learning) =====
-    const int QL_BIRD_Y_BINS   = 20;
-    const int QL_BIRD_VEL_BINS = 16;
-    const int QL_GAP_CTR_BINS  = 15;
-    const int QL_DIST_BINS     = 10;
+    const int QL_BIRD_Y_BINS   = 24;
+    const int QL_BIRD_VEL_BINS = 18;
+    const int QL_GAP_CTR_BINS  = 18;
+    const int QL_DIST_BINS     = 12;
     const float QL_HITBOX_INSET = 4f;
 
-    static int QlBinBirdY(float y)     => Math.Clamp((int)(y / 30f), 0, QL_BIRD_Y_BINS - 1);
-    static int QlBinBirdVel(float v)   => Math.Clamp((int)((v + 9f) / 1.5f), 0, QL_BIRD_VEL_BINS - 1);
-    static int QlBinGapCenter(float g) => Math.Clamp((int)(g / 40f), 0, QL_GAP_CTR_BINS - 1);
-    static int QlBinDist(float d)      => Math.Clamp((int)(d / 80f), 0, QL_DIST_BINS - 1);
+    static int QlBinBirdY(float y)     => Math.Clamp((int)(y / 25f), 0, QL_BIRD_Y_BINS - 1);
+    static int QlBinBirdVel(float v)   => Math.Clamp((int)((v + 7f) / 1.0f), 0, QL_BIRD_VEL_BINS - 1);
+    static int QlBinGapCenter(float g) => Math.Clamp((int)(g / 33f), 0, QL_GAP_CTR_BINS - 1);
+    static int QlBinDist(float d)      => Math.Clamp((int)(d / 67f), 0, QL_DIST_BINS - 1);
 
     static int QlStateIndex(float y, float vel, float gapC, float dist) =>
         QlBinBirdY(y) * (QL_BIRD_VEL_BINS * QL_GAP_CTR_BINS * QL_DIST_BINS) +

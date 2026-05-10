@@ -4,9 +4,9 @@ using System.IO;
 using System.Linq;
 
 // ===== Game constants (must match FlappyBrainGameV2.cs exactly) =====
-const float GRAVITY      = 0.40f;
-const float FLAP         = -8.5f;
-const float TERMINAL     = 14f;
+const float GRAVITY      = 0.15f;
+const float FLAP         = -6.5f;
+const float TERMINAL     = 10f;
 const float BIRD_W       = 40f;
 const float BIRD_H       = 36f;
 const float HITBOX_INSET = 4f;
@@ -25,18 +25,18 @@ static float SectionGap(int s)      => MathF.Max(100f, 210f - s * 5.5f);
 static float SectionSpawnInt(int s) => MathF.Max(0.8f, 4.6f - s * 0.2f);
 
 // ===== State discretization =====
-const int BIRD_Y_BINS    = 20; // 30px each
-const int BIRD_VEL_BINS  = 16;
-const int GAP_CTR_BINS   = 15; // 40px each
-const int DIST_BINS      = 10; // 80px each
+const int BIRD_Y_BINS    = 24; // 25px each
+const int BIRD_VEL_BINS  = 18;
+const int GAP_CTR_BINS   = 18; // ~33px each
+const int DIST_BINS      = 12; // ~67px each
 
-const int STATE_COUNT  = BIRD_Y_BINS * BIRD_VEL_BINS * GAP_CTR_BINS * DIST_BINS; // 48000
+const int STATE_COUNT  = BIRD_Y_BINS * BIRD_VEL_BINS * GAP_CTR_BINS * DIST_BINS; // 93312
 const int ACTION_COUNT = 2;
 
-static int BinBirdY(float y)     => Math.Clamp((int)(y / 30f), 0, BIRD_Y_BINS - 1);
-static int BinBirdVel(float v)   => Math.Clamp((int)((v + 9f) / 1.5f), 0, BIRD_VEL_BINS - 1);
-static int BinGapCenter(float g) => Math.Clamp((int)(g / 40f), 0, GAP_CTR_BINS - 1);
-static int BinDist(float d)      => Math.Clamp((int)(d / 80f), 0, DIST_BINS - 1);
+static int BinBirdY(float y)     => Math.Clamp((int)(y / 25f), 0, BIRD_Y_BINS - 1);
+static int BinBirdVel(float v)   => Math.Clamp((int)((v + 7f) / 1.0f), 0, BIRD_VEL_BINS - 1);
+static int BinGapCenter(float g) => Math.Clamp((int)(g / 33f), 0, GAP_CTR_BINS - 1);
+static int BinDist(float d)      => Math.Clamp((int)(d / 67f), 0, DIST_BINS - 1);
 
 static int StateIndex(float y, float vel, float gapC, float dist) =>
     BinBirdY(y) * (BIRD_VEL_BINS * GAP_CTR_BINS * DIST_BINS) +
@@ -47,15 +47,15 @@ static int StateIndex(float y, float vel, float gapC, float dist) =>
 // ===== Q-table & hyperparameters =====
 var Q = new float[STATE_COUNT, ACTION_COUNT];
 
-const float ALPHA         = 0.2f;
-const float GAMMA          = 0.95f;
-const float EPSILON_START  = 0.5f;
-const float EPSILON_END    = 0.01f;
-const int   EPISODES       = 800_000;
+const float ALPHA         = 0.25f;
+const float GAMMA          = 0.97f;
+const float EPSILON_START  = 0.6f;
+const float EPSILON_END    = 0.02f;
+const int   EPISODES       = 1_500_000;
 const float EPSILON_DECAY  = (EPSILON_START - EPSILON_END) / (EPISODES * 0.7f);
 
-const float REWARD_PIPE_CLEAR    =  20f;
-const float REWARD_SECTION_CLEAR = 100f;
+const float REWARD_PIPE_CLEAR    =  40f;
+const float REWARD_SECTION_CLEAR = 200f;
 const float REWARD_DEATH         = -100f;
 const float REWARD_ALIVE         =  0.5f;
 
@@ -95,22 +95,27 @@ for (int ep = 0; ep < EPISODES; ep++)
     // every section with non-trivial frequency, not just section 0.
     // Heavily bias toward sections 0-3 since the test starts there.
     int startSection;
-    if (ep < 100_000)
+    if (ep < 200_000)
         startSection = 0;
-    else if (ep < 250_000)
+    else if (ep < 500_000)
         startSection = rng.Next(0, 4);
-    else if (ep < 450_000)
+    else if (ep < 800_000)
         startSection = rng.Next(0, 8);
-    else if (ep < 650_000)
+    else if (ep < 1_000_000)
         startSection = rng.Next(0, TOTAL_SECTIONS);
     else
     {
-        // Final phase: 60% on sections 0-3 (the targets), 40% on rest
-        if (rng.NextDouble() < 0.6) startSection = rng.Next(0, 4);
+        // Final phase: 90% on sections 0-3 (the targets), 10% on rest
+        if (rng.NextDouble() < 0.9) startSection = rng.Next(0, 4);
         else startSection = rng.Next(0, TOTAL_SECTIONS);
     }
 
-    int score = RunEpisode(startSection, training: true);
+    // Slight start-state jitter so the policy is robust around the deterministic
+    // start position (200, LOG_H/2, 0). Without this the greedy policy can be
+    // brittle — passing the deterministic test depends on exact state.
+    float startY = LOG_H / 2f + (float)(rng.NextDouble() - 0.5) * 60f;
+    float startVY = (float)(rng.NextDouble() - 0.5) * 2f;
+    int score = RunEpisode(startSection, training: true, startY: startY, startVY: startVY);
 
     if (score > bestScore) bestScore = score;
     recentScores.Enqueue(score);
@@ -136,9 +141,9 @@ Console.WriteLine("Testing per-section (deterministic, 1 attempt each)...");
 for (int s = 0; s < TOTAL_SECTIONS; s++)
 {
     // Quick check: can the policy survive section s starting from default position?
-    var (survived, scored, _, _) = RunSection(s, 200f, LOG_H / 2f, 0f, training: false);
+    var (survived, scored, finalY, finalVY) = RunSection(s, 200f, LOG_H / 2f, 0f, training: false);
     string status = survived ? "CLEAR" : "FAIL ";
-    Console.WriteLine($"  Section {s + 1,2}: {status}  pipes_passed={scored}");
+    Console.WriteLine($"  Section {s + 1,2}: {status}  pipes_passed={scored}  final y={finalY:F0} vy={finalVY:F1}");
 }
 
 // ===== Save Q-table =====
@@ -174,11 +179,11 @@ foreach (var (idx, count) in topStates)
 return 0;
 
 // ===== Episode runner =====
-int RunEpisode(int startSection, bool training)
+int RunEpisode(int startSection, bool training, float startY = -1f, float startVY = 0f)
 {
     float birdX = 200f;
-    float birdY = LOG_H / 2f;
-    float birdVY = 0f;
+    float birdY = (startY < 0f) ? LOG_H / 2f : startY;
+    float birdVY = startVY;
 
     int totalScore = 0;
     int section = startSection;
@@ -243,24 +248,34 @@ int RunEpisode(int startSection, bool training)
         int action;
         if (training && rng.NextDouble() < epsilon)
         {
-            // Biased exploration: flap roughly 1/12 frames when random, matching
-            // Flappy Bird's actual flap cadence. Uniform 50/50 flapping kills the
-            // bird on the ceiling within 30 frames and makes credit assignment
-            // impossible.
-            action = rng.NextDouble() < (1.0 / 12.0) ? 1 : 0;
+            // Biased exploration: flap roughly 1/18 frames when random.
+            // Softer physics (G=0.15, FLAP=-6.5) means each flap arc lasts ~90
+            // frames; uniform/frequent flapping pins the bird to the ceiling.
+            action = rng.NextDouble() < (1.0 / 18.0) ? 1 : 0;
         }
         else
         {
             // Tie-breaker: when Q-values are equal (untrained state), prefer FLAP
-            // if bird is below center or falling fast. This prevents the floor
-            // death-spiral in unexplored states (especially during long inter-pipe
-            // gaps in early sections).
+            // if bird is below the gap target (or mid-screen if no pipe in view)
+            // and not already flying upward. Prevents floor death-spiral in
+            // unexplored states.
             if (Q[state, 1] > Q[state, 0]) action = 1;
             else if (Q[state, 1] < Q[state, 0]) action = 0;
             else
             {
-                // Tie: heuristic — flap if below mid-screen and not flying upward
-                if (birdY > LOG_H / 2f && birdVY > -2f) action = 1;
+                // Find next gap target
+                float tgt = LOG_H / 2f;
+                float minD = float.MaxValue;
+                foreach (var p in pipes)
+                {
+                    if (p.X + PIPE_W >= birdX)
+                    {
+                        float d = p.X - birdX;
+                        if (d < minD) { minD = d; tgt = p.GapY; }
+                    }
+                }
+                // Flap if below target by >30px and not already rising fast
+                if (birdY > tgt + 30f && birdVY > -2f) action = 1;
                 else action = 0;
             }
         }
@@ -331,12 +346,12 @@ int RunEpisode(int startSection, bool training)
                 }
             }
             float yErr = MathF.Abs(birdY - gapTarget);
-            // Negative shaping proportional to how off-target we are; max ~-0.3
-            reward -= (yErr / LOG_H) * 0.6f;
+            // Negative shaping proportional to gap-target offset
+            reward -= (yErr / LOG_H) * 1.0f;
 
             // Strong proximity-to-edge penalty (death zone is y<10 or y>540)
-            if (birdY < 60f) reward -= 0.5f;
-            else if (birdY > LOG_H - 110f) reward -= 0.5f;
+            if (birdY < 60f) reward -= 0.8f;
+            else if (birdY > LOG_H - 110f) reward -= 0.8f;
         }
 
         if (died) reward = REWARD_DEATH;
