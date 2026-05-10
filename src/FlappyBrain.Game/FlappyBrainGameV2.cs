@@ -346,14 +346,14 @@ public class FlappyBrainGameV2 : Game
     {
         if (_outbackTheme) _bgScroll += 2.4f;
 
-        // Demo: every 15 seconds of play, 1-in-3 chance of forced collision
+        // Demo: every 15 seconds of play, 1-in-3 chance of forced collision (only when pipes are on screen)
         if (_aiMode)
         {
             _demoCollisionTimer += dt;
             if (_demoCollisionTimer >= 15f)
             {
                 _demoCollisionTimer = 0f;
-                if (_demoRng.Next(3) == 0)  // 1-in-3
+                if (_pipes.Count > 0 && _demoRng.Next(3) == 0)  // 1-in-3, only during active pipe sections
                     TriggerGore();
             }
         }
@@ -419,7 +419,7 @@ public class FlappyBrainGameV2 : Game
 
         _birdRot = MathHelper.Clamp(_birdVel * 0.07f, -0.5f, 1.2f);
 
-        if (allowDeath && (_birdY < 0 || _birdY > LogH))
+        if (allowDeath && (_birdY < 10 || _birdY > LogH - 60))
         {
             TriggerGore();
         }
