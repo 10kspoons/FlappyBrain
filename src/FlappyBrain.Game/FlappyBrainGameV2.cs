@@ -115,6 +115,16 @@ public class FlappyBrainGameV2 : Game
     SpriteBatch _spriteBatch = null!;
     Texture2D _pixel = null!;
     bool _fullscreen;
+    // ===== Win32 P/Invoke for reliable fullscreen =====
+    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
+    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")]
+    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    const uint SWP_SHOWWINDOW = 0x0040;
+    bool _fullscreenApplied = false;
+    int _displayW, _displayH;
+
     RenderTarget2D? _renderTarget;
 
     // ===== Input =====
@@ -156,6 +166,8 @@ public class FlappyBrainGameV2 : Game
             var dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
             _graphics.PreferredBackBufferWidth  = dm.Width;
             _graphics.PreferredBackBufferHeight = dm.Height;
+            _displayW = dm.Width;
+            _displayH = dm.Height;
         }
         if (_learnedMode)
         {
@@ -201,6 +213,9 @@ public class FlappyBrainGameV2 : Game
             Window.IsBorderless = true;
             Window.Position = new Microsoft.Xna.Framework.Point(0, 0);
             _graphics.ApplyChanges();
+            // Force Win32 window position immediately
+            SetWindowPos(Window.Handle, HWND_TOPMOST, 0, 0, _displayW, _displayH, SWP_SHOWWINDOW);
+            ShowWindow(Window.Handle, 3); // SW_MAXIMIZE
         }
         PreGenerateSectionLayout();
         ResetToLeaderboard();
@@ -453,6 +468,13 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Update(GameTime gameTime)
     {
+        // Re-apply fullscreen via Win32 on first few frames to overcome MonoGame window drift
+        if (_fullscreen && !_fullscreenApplied)
+        {
+            SetWindowPos(Window.Handle, HWND_TOPMOST, 0, 0, _displayW, _displayH, SWP_SHOWWINDOW);
+            _fullscreenApplied = true;
+        }
+
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
         var kb = Keyboard.GetState();
 
