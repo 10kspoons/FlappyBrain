@@ -114,6 +114,8 @@ public class FlappyBrainGameV2 : Game
     GraphicsDeviceManager _graphics = null!;
     SpriteBatch _spriteBatch = null!;
     Texture2D _pixel = null!;
+    bool _fullscreen;
+    RenderTarget2D? _renderTarget;
 
     // ===== Input =====
     KeyboardState _prevKb;
@@ -133,7 +135,7 @@ public class FlappyBrainGameV2 : Game
     bool _learnedMode;
     float[,]? _qTable;
 
-    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false)
+    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false, bool fullscreen = false)
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -148,6 +150,17 @@ public class FlappyBrainGameV2 : Game
         _aiMode = aiMode;
         _outbackTheme = outbackTheme;
         _learnedMode = learnedMode;
+        _fullscreen = fullscreen;
+        if (fullscreen)
+        {
+            var dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
+            _graphics.PreferredBackBufferWidth  = dm.Width;
+            _graphics.PreferredBackBufferHeight = dm.Height;
+            _graphics.IsFullScreen = false;
+            _graphics.ApplyChanges();
+            Window.IsBorderless = true;
+            Window.Position = new Microsoft.Xna.Framework.Point(0, 0);
+        }
         if (_learnedMode)
         {
             _qTable = TryLoadQTable();
@@ -208,10 +221,7 @@ public class FlappyBrainGameV2 : Game
         try
         {
             _httpListener = new HttpListener();
-            _httpListener.Prefixes.Add("http://localhost:5001/");
-            _httpListener.Prefixes.Add("http://127.0.0.1:5001/");
-            // Listen on all interfaces too — needed for PWA on phones/tablets to reach the game machine.
-            try { _httpListener.Prefixes.Add("http://+:5001/"); } catch { /* may require admin on Windows; localhost still works */ }
+            _httpListener.Prefixes.Add("http://+:5001/");
             _httpListener.Start();
             _httpCts = new CancellationTokenSource();
             _httpTask = Task.Run(() => HttpListenerLoop(_httpCts.Token));
@@ -338,6 +348,10 @@ public class FlappyBrainGameV2 : Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         _pixel = new Texture2D(GraphicsDevice, 1, 1);
+        if (_fullscreen)
+        {
+            _renderTarget = new RenderTarget2D(GraphicsDevice, LogW, LogH);
+        }
         if (_outbackTheme && System.IO.File.Exists(BG_ASSET))
         {
             try { _bgTexture = Texture2D.FromFile(GraphicsDevice, BG_ASSET); }
@@ -934,6 +948,28 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        if (_fullscreen && _renderTarget != null)
+        {
+            GraphicsDevice.SetRenderTarget(_renderTarget);
+            DrawScene(gameTime);
+            GraphicsDevice.SetRenderTarget(null);
+            GraphicsDevice.Clear(Color.Black);
+            var vp = GraphicsDevice.Viewport;
+            float scale = Math.Min(vp.Width / (float)LogW, vp.Height / (float)LogH);
+            int dstW = (int)(LogW * scale), dstH = (int)(LogH * scale);
+            int offX = (vp.Width - dstW) / 2, offY = (vp.Height - dstH) / 2;
+            _spriteBatch.Begin(samplerState: Microsoft.Xna.Framework.Graphics.SamplerState.LinearClamp);
+            _spriteBatch.Draw(_renderTarget, new Rectangle(offX, offY, dstW, dstH), Color.White);
+            _spriteBatch.End();
+            base.Draw(gameTime);
+            return;
+        }
+
+        DrawScene(gameTime);
+    }
+
+    void DrawScene(GameTime gameTime)
+    {
         GraphicsDevice.Clear(_outbackTheme ? new Color(0x1A, 0x0F, 0x08) : new Color(0x6E, 0xC8, 0xE6));
 
         _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
@@ -943,7 +979,7 @@ public class FlappyBrainGameV2 : Game
             DrawLeaderboardScene();
             if (_state == GameState.Training) DrawTrainingOverlay();
             _spriteBatch.End();
-            base.Draw(gameTime);
+            if (!_fullscreen) base.Draw(gameTime);
             return;
         }
 
@@ -1000,7 +1036,7 @@ public class FlappyBrainGameV2 : Game
         }
 
         _spriteBatch.End();
-        base.Draw(gameTime);
+        if (!_fullscreen) base.Draw(gameTime);
     }
 
     void DrawPauseOverlay()
