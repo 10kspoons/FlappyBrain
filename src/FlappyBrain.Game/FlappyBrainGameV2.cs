@@ -1,4 +1,5 @@
 using System;
+using FlappyBrain.BCI;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -11,6 +12,60 @@ using Microsoft.Xna.Framework.Graphics;
 using Microsoft.Xna.Framework.Input;
 
 namespace FlappyBrain;
+
+
+// ===== THEME PALETTE SYSTEM =====
+public record struct ThemePalette(
+    Color SkyTop, Color SkyMid, Color SkyBot,
+    Color GroundTop, Color GroundBot,
+    Color RuinCol, Color PipeBody, Color PipeStripe, Color PipeCap,
+    Color BirdColor, Color BirdDark,
+    Color DustColor, Color SpeedLine
+);
+
+public static class Themes
+{
+    public static ThemePalette Get(string name) => name.ToLower() switch
+    {
+        "safari" => new ThemePalette(
+            new Color(0x1A, 0x3A, 0x5A), new Color(0x6B, 0x8E, 0x23), new Color(0xE8, 0xC4, 0x40),
+            new Color(0x8B, 0x69, 0x14), new Color(0x4A, 0x35, 0x0A),
+            new Color(0x5C, 0x4A, 0x1A), new Color(0x5A, 0x7A, 0x2A), new Color(0x6A, 0x8A, 0x3A), new Color(0x3A, 0x5A, 0x1A),
+            new Color(0xFF, 0x8C, 0x00), new Color(0xCC, 0x5A, 0x00),
+            new Color(0xD4, 0xB8, 0x6A, 0x60), new Color(0xE8, 0xC4, 0x40)),
+        "steampunk" => new ThemePalette(
+            new Color(0x1A, 0x0A, 0x05), new Color(0x4A, 0x2A, 0x0A), new Color(0x7A, 0x45, 0x10),
+            new Color(0x3A, 0x20, 0x10), new Color(0x1A, 0x0A, 0x05),
+            new Color(0x2A, 0x15, 0x08), new Color(0x8B, 0x45, 0x13), new Color(0xA0, 0x55, 0x25), new Color(0x5A, 0x2A, 0x05),
+            new Color(0xD4, 0xA0, 0x17), new Color(0x9A, 0x68, 0x05),
+            new Color(0xB4, 0x85, 0x4A, 0x60), new Color(0xD4, 0xA0, 0x17)),
+        "postapoc" => new ThemePalette(
+            new Color(0x0A, 0x15, 0x05), new Color(0x1A, 0x3A, 0x0A), new Color(0x4A, 0x6A, 0x15),
+            new Color(0x1A, 0x3A, 0x10), new Color(0x0A, 0x1A, 0x05),
+            new Color(0x15, 0x2A, 0x08), new Color(0x4A, 0x6A, 0x20), new Color(0x5A, 0x8A, 0x30), new Color(0x2A, 0x4A, 0x10),
+            new Color(0xE8, 0xE8, 0x40), new Color(0xB8, 0xB8, 0x00),
+            new Color(0x8A, 0xD4, 0x6A, 0x60), new Color(0x8A, 0xE8, 0x40)),
+        "landmarks" => new ThemePalette(
+            new Color(0x00, 0x44, 0x99), new Color(0x00, 0x88, 0xCC), new Color(0x44, 0xCC, 0xFF),
+            new Color(0xCC, 0x99, 0x00), new Color(0x88, 0x66, 0x00),
+            new Color(0x66, 0x44, 0x00), new Color(0x00, 0x66, 0x00), new Color(0x00, 0x88, 0x00), new Color(0x00, 0x44, 0x00),
+            new Color(0xFF, 0xCC, 0x00), new Color(0xCC, 0x88, 0x00),
+            new Color(0xFF, 0xEE, 0x88, 0x60), new Color(0xFF, 0xCC, 0x00)),
+        "spoons" => new ThemePalette(
+            new Color(0x00, 0x2D, 0x2D), new Color(0x00, 0x55, 0x55), new Color(0x00, 0x88, 0x88),
+            new Color(0x00, 0x40, 0x40), new Color(0x00, 0x20, 0x20),
+            new Color(0x00, 0x2A, 0x2A), new Color(0x00, 0x80, 0x80), new Color(0x00, 0xA0, 0xA0), new Color(0x00, 0x50, 0x50),
+            new Color(0xFF, 0xFF, 0xFF), new Color(0xCC, 0xCC, 0xCC),
+            new Color(0x88, 0xFF, 0xFF, 0x60), new Color(0x00, 0xFF, 0xFF)),
+        // "outback" is the default
+        _ => new ThemePalette(
+            new Color(0x1A, 0x0F, 0x08), new Color(0x6B, 0x30, 0x20), new Color(0xC4, 0x62, 0x2D),
+            new Color(0x3A, 0x20, 0x10), new Color(0x1A, 0x0A, 0x05),
+            new Color(0x2A, 0x15, 0x08), new Color(0x5A, 0x30, 0x10), new Color(0x6B, 0x40, 0x20), new Color(0x4A, 0x28, 0x08),
+            new Color(0xE8, 0xC4, 0x40), new Color(0xB8, 0x85, 0x10),
+            new Color(0xD4, 0x95, 0x6A, 0x60), new Color(0xC4, 0x62, 0x2D))
+    };
+}
 
 public class FlappyBrainGameV2 : Game
 {
@@ -115,6 +170,17 @@ public class FlappyBrainGameV2 : Game
     SpriteBatch _spriteBatch = null!;
     Texture2D _pixel = null!;
     bool _fullscreen;
+    string _themeName = "";
+    ThemePalette _themePalette;
+
+    // ===== Gravity slowdown / BCI integration =====
+    float _gravityScale = 1.0f;
+    float _gravitySlowTimer = 0f;          // seconds remaining for slow-gravity boost
+    const float GRAVITY_SLOW_DURATION = 2.5f;  // seconds of gravity reduction per BCI event
+    const float GRAVITY_SLOW_SCALE = 0.45f;    // multiplier when slowed
+    bool _slowGravityMode = false;         // --slow-gravity flag: always slow
+    CortexClient? _cortexClient;
+    bool _bciEnabled = false;
     // ===== Win32 P/Invoke for reliable fullscreen =====
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
     static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
@@ -145,7 +211,7 @@ public class FlappyBrainGameV2 : Game
     bool _learnedMode;
     float[,]? _qTable;
 
-    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false, bool fullscreen = false)
+    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false, bool fullscreen = false, string theme = "", bool slowGravity = false, bool enableBci = false)
     {
         _graphics = new GraphicsDeviceManager(this)
         {
@@ -158,9 +224,24 @@ public class FlappyBrainGameV2 : Game
         IsFixedTimeStep = true;
         TargetElapsedTime = TimeSpan.FromSeconds(1.0 / 60.0);
         _aiMode = aiMode;
-        _outbackTheme = outbackTheme;
+        _outbackTheme = outbackTheme || !string.IsNullOrEmpty(theme);
         _learnedMode = learnedMode;
         _fullscreen = fullscreen;
+        _themeName = string.IsNullOrEmpty(theme) ? (outbackTheme ? "outback" : "") : theme;
+        _themePalette = string.IsNullOrEmpty(_themeName) ? Themes.Get("outback") : Themes.Get(_themeName);
+
+        // Gravity slowdown / BCI init
+        _slowGravityMode = slowGravity;
+        if (_slowGravityMode) _gravityScale = GRAVITY_SLOW_SCALE;
+        _bciEnabled = enableBci;
+        if (_bciEnabled)
+        {
+            var config = new CortexConfig { ProfileName = "flappybrain", ActionMap = "push", PowerThreshold = 0.5 };
+            _cortexClient = new CortexClient(config);
+            _ = _cortexClient.StartAsync();
+            Console.WriteLine("[BCI] Cortex client started — connecting to Epoc X on wss://localhost:6868...");
+        }
+
         if (fullscreen)
         {
             var dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
@@ -226,6 +307,7 @@ public class FlappyBrainGameV2 : Game
     protected override void UnloadContent()
     {
         StopHttpControlServer();
+        _cortexClient?.DisposeAsync().GetAwaiter().GetResult();
         base.UnloadContent();
     }
 
@@ -476,6 +558,29 @@ public class FlappyBrainGameV2 : Game
         }
 
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
+
+        // ===== BCI Gravity Slowdown =====
+        if (!_slowGravityMode)
+        {
+            // Poll BCI for mental commands
+            if (_cortexClient != null)
+            {
+                while (_cortexClient.FlapEvents.TryRead(out var ev))
+                {
+                    if (ev.Action == "push" || ev.Action == "lift")
+                    {
+                        _gravitySlowTimer = GRAVITY_SLOW_DURATION;
+                        Console.WriteLine($"[BCI] Mental command '{ev.Action}' (power={ev.Power:F2}) → gravity slowdown for {GRAVITY_SLOW_DURATION}s");
+                    }
+                }
+            }
+            // Tick gravity timer
+            if (_gravitySlowTimer > 0f)
+            {
+                _gravitySlowTimer -= dt;
+                _gravityScale = _gravitySlowTimer > 0f ? GRAVITY_SLOW_SCALE : 1.0f;
+            }
+        }
         var kb = Keyboard.GetState();
 
         if (kb.IsKeyDown(Keys.Escape)) Exit();
@@ -738,8 +843,8 @@ public class FlappyBrainGameV2 : Game
     {
         if (allowFlap && flapPressed) _birdVel = FLAP;
 
-        _birdVel += GRAVITY;
-        if (_birdVel > TERMINAL) _birdVel = TERMINAL;
+        _birdVel += GRAVITY * _gravityScale;
+        if (_birdVel > TERMINAL * _gravityScale) _birdVel = TERMINAL * _gravityScale;
         _birdY += _birdVel;
 
         _birdRot = MathHelper.Clamp(_birdVel * 0.07f, -0.5f, 1.2f);
@@ -1175,9 +1280,9 @@ public class FlappyBrainGameV2 : Game
     void DrawLeaderboardSky()
     {
         // Far gradient
-        var c1 = new Color(0x1A, 0x0F, 0x08);
-        var c2 = new Color(0x6B, 0x30, 0x20);
-        var c3 = new Color(0xC4, 0x62, 0x2D);
+        var c1 = _themePalette.SkyTop;
+        var c2 = _themePalette.SkyMid;
+        var c3 = _themePalette.SkyBot;
         int skyH = LogH - 70;
         for (int y = 0; y < skyH; y++)
         {
@@ -1827,9 +1932,9 @@ public class FlappyBrainGameV2 : Game
         }
 
         // Burnt-orange gradient overlay at 65% opacity: #1A0F08 → #6B3020 → #C4622D
-        var c1 = new Color(0x1A, 0x0F, 0x08);
-        var c2 = new Color(0x6B, 0x30, 0x20);
-        var c3 = new Color(0xC4, 0x62, 0x2D);
+        var c1 = _themePalette.SkyTop;
+        var c2 = _themePalette.SkyMid;
+        var c3 = _themePalette.SkyBot;
         int skyH = LogH - 70;
         for (int y = 0; y < skyH; y++)
         {
@@ -1847,7 +1952,7 @@ public class FlappyBrainGameV2 : Game
             float py = rngSL.NextSingle() * LogH;
             float len = 60 + rngSL.NextSingle() * 120;
             float alpha = 0.20f + rngSL.NextSingle() * 0.25f;
-            DrawRect(shake.X, py + shake.Y, len, 1, new Color(0xC4, 0x62, 0x2D) * alpha);
+            DrawRect(shake.X, py + shake.Y, len, 1, _themePalette.SpeedLine * alpha);
         }
 
         // Dust particles drifting left
@@ -1859,7 +1964,7 @@ public class FlappyBrainGameV2 : Game
             if (px > LogW) continue;
             float py = 30 + rng2.NextSingle() * 500;
             float sz = 2 + rng2.NextSingle() * 2;
-            DrawRect(px + shake.X, py + shake.Y, (int)sz, (int)sz, new Color(0xD4, 0x95, 0x6A) * 0.35f);
+            DrawRect(px + shake.X, py + shake.Y, (int)sz, (int)sz, _themePalette.DustColor * 0.35f);
         }
 
         // Ruined city silhouette (far background parallax)
@@ -1869,7 +1974,7 @@ public class FlappyBrainGameV2 : Game
     void DrawRuinedSkyline(Vector2 shake)
     {
         float offset = (_bgScroll * 0.08f) % (LogW * 2);
-        var col = new Color(0x2A, 0x15, 0x08) * 0.9f;
+        var col = _themePalette.RuinCol * 0.9f;
         int[] widths  = { 40, 25, 55, 30, 70, 20, 45, 35 };
         int[] heights = { 180, 120, 220, 140, 160, 90, 200, 130 };
         int x = 0;
@@ -1917,7 +2022,7 @@ public class FlappyBrainGameV2 : Game
         for (int y = 0; y < 70; y++)
         {
             float t = y / 70f;
-            Color c = Color.Lerp(new Color(0x3A, 0x20, 0x10), new Color(0x1A, 0x0A, 0x05), t);
+            Color c = Color.Lerp(_themePalette.GroundTop, _themePalette.GroundBot, t);
             DrawRect(0, groundY + y + shake.Y, LogW, 1, c);
         }
         // Rubble chunks
@@ -1928,7 +2033,7 @@ public class FlappyBrainGameV2 : Game
             if (rx > LogW || rx < -30) continue;
             int rw = 4 + (int)(rng3.NextSingle() * 14);
             int rh = 3 + (int)(rng3.NextSingle() * 8);
-            DrawRect(rx + shake.X, groundY + shake.Y + 3, rw, rh, new Color(0x2A, 0x15, 0x08));
+            DrawRect(rx + shake.X, groundY + shake.Y + 3, rw, rh, _themePalette.RuinCol);
         }
     }
 
@@ -1938,10 +2043,10 @@ public class FlappyBrainGameV2 : Game
         float botY = p.GapY + p.GapH / 2f;
         float botH = MathF.Max(0, LogH - 70 - botY);
 
-        // Post-apoc: darker, rustier corrugated iron
-        var body   = new Color(0x5A, 0x30, 0x10);
-        var stripe = new Color(0x6B, 0x40, 0x20);
-        var cap    = new Color(0x4A, 0x28, 0x08);
+        // Themed corrugated pipe
+        var body   = _themePalette.PipeBody;
+        var stripe = _themePalette.PipeStripe;
+        var cap    = _themePalette.PipeCap;
 
         // Top pipe
         DrawRect(p.X + shake.X, shake.Y, PIPE_W, topH, body);
