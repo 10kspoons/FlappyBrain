@@ -156,10 +156,6 @@ public class FlappyBrainGameV2 : Game
             var dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
             _graphics.PreferredBackBufferWidth  = dm.Width;
             _graphics.PreferredBackBufferHeight = dm.Height;
-            _graphics.IsFullScreen = false;
-            _graphics.ApplyChanges();
-            Window.IsBorderless = true;
-            Window.Position = new Microsoft.Xna.Framework.Point(0, 0);
         }
         if (_learnedMode)
         {
@@ -198,6 +194,14 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Initialize()
     {
+        if (_fullscreen)
+        {
+            _graphics.IsFullScreen = false;
+            _graphics.ApplyChanges();
+            Window.IsBorderless = true;
+            Window.Position = new Microsoft.Xna.Framework.Point(0, 0);
+            _graphics.ApplyChanges();
+        }
         PreGenerateSectionLayout();
         ResetToLeaderboard();
         StartHttpControlServer();
