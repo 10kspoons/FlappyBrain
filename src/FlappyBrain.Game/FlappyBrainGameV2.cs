@@ -300,7 +300,6 @@ public class FlappyBrainGameV2 : Game
             _graphics.ApplyChanges();
             // Force Win32 window position immediately
             SetWindowPos(Window.Handle, HWND_TOPMOST, 0, 0, _displayW, _displayH, SWP_SHOWWINDOW);
-            ShowWindow(Window.Handle, 3); // SW_MAXIMIZE
         }
         PreGenerateSectionLayout();
 
@@ -1120,6 +1119,7 @@ public class FlappyBrainGameV2 : Game
             GraphicsDevice.SetRenderTarget(_renderTarget);
             DrawScene(gameTime);
             GraphicsDevice.SetRenderTarget(null);
+            GraphicsDevice.Viewport = new Viewport(0, 0, _displayW, _displayH);
             GraphicsDevice.Clear(Color.Black);
             var vp = GraphicsDevice.Viewport;
             float scale = Math.Min(vp.Width / (float)LogW, vp.Height / (float)LogH);
