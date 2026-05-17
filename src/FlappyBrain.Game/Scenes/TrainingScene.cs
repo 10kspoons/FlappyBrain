@@ -26,8 +26,8 @@ public sealed class TrainingScene
     public Outcome Result { get; private set; } = Outcome.InProgress;
     public bool IsComplete => Result != Outcome.InProgress;
 
-    // Tunables
-    const int LogW = 800;
+    // Tunables — LogW is settable so fullscreen can widen the logical canvas to match display ratio
+    public static int LogW = 800;
     const int LogH = 600;
     const float NEUTRAL_DURATION = 10f;
     const int TOTAL_REPS = 8;

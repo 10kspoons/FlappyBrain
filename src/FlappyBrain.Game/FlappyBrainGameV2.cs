@@ -71,7 +71,7 @@ public static class Themes
 public class FlappyBrainGameV2 : Game
 {
     // ===== Logical resolution =====
-    const int LogW = 800;
+    static int LogW = 800;   // updated at startup for fullscreen to match display ratio
     const int LogH = 600;
 
     // ===== Section config =====
@@ -185,7 +185,6 @@ public class FlappyBrainGameV2 : Game
     CortexClient? _cortexClient;
     bool _bciEnabled = false;
     int _displayW, _displayH;
-    bool _diagDumped = false;
 
     RenderTarget2D? _renderTarget;
 
@@ -244,6 +243,11 @@ public class FlappyBrainGameV2 : Game
             // Use native display mode — actual dimensions set in Initialize() after device is ready
             _displayW = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
             _displayH = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
+            // Expand logical canvas width to match display aspect ratio — fills screen without bars
+            // Keep LogH=600 fixed; LogW scales to match the display's width/height ratio
+            LogW = (int)Math.Round(LogH * _displayW / (float)_displayH);
+            // LogW will be ~960 for 16:10 (1707x1067), ~1067 for 16:9 (1920x1080), etc.
+            TrainingScene.LogW = LogW;
         }
         if (_learnedMode)
         {
@@ -292,6 +296,9 @@ public class FlappyBrainGameV2 : Game
             // Read back the ACTUAL back buffer size MonoGame allocated
             _displayW = GraphicsDevice.PresentationParameters.BackBufferWidth;
             _displayH = GraphicsDevice.PresentationParameters.BackBufferHeight;
+            // Recompute LogW from the ACTUAL back buffer ratio (may differ from display mode)
+            LogW = (int)Math.Round(LogH * _displayW / (float)_displayH);
+            TrainingScene.LogW = LogW;
         }
         PreGenerateSectionLayout();
 
@@ -1099,27 +1106,6 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Draw(GameTime gameTime)
     {
-        if (!_diagDumped)
-        {
-            _diagDumped = true;
-            try
-            {
-                var vp = GraphicsDevice.Viewport;
-                var pp = GraphicsDevice.PresentationParameters;
-                var cb = Window.ClientBounds;
-                var diag = $"Viewport: {vp.X},{vp.Y} {vp.Width}x{vp.Height}\n" +
-                           $"BackBuffer: {pp.BackBufferWidth}x{pp.BackBufferHeight}\n" +
-                           $"ClientBounds: {cb.X},{cb.Y} {cb.Width}x{cb.Height}\n" +
-                           $"DisplayMode: {GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width}x{GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height}\n" +
-                           $"_displayW: {_displayW}, _displayH: {_displayH}\n" +
-                           $"LogW: {LogW}, LogH: {LogH}\n" +
-                           $"IsFullscreen: {_fullscreen}\n" +
-                           $"IsFullScreenMode: {_graphics.IsFullScreen}\n";
-                System.IO.File.WriteAllText(@"C:\temp\fb-diag.txt", diag);
-            }
-            catch { }
-        }
-
         if (_fullscreen && _renderTarget != null)
         {
             GraphicsDevice.SetRenderTarget(_renderTarget);
