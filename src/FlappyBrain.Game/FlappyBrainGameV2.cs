@@ -184,14 +184,6 @@ public class FlappyBrainGameV2 : Game
     bool _slowGravityMode = false;         // --slow-gravity flag: always slow
     CortexClient? _cortexClient;
     bool _bciEnabled = false;
-    // ===== Win32 P/Invoke for reliable fullscreen =====
-    [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
-    static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
-    [System.Runtime.InteropServices.DllImport("user32.dll")]
-    static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-    static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
-    const uint SWP_SHOWWINDOW = 0x0040;
-    bool _fullscreenApplied = false;
     int _displayW, _displayH;
 
     RenderTarget2D? _renderTarget;
@@ -248,11 +240,9 @@ public class FlappyBrainGameV2 : Game
 
         if (fullscreen)
         {
-            var dm = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode;
-            _graphics.PreferredBackBufferWidth  = dm.Width;
-            _graphics.PreferredBackBufferHeight = dm.Height;
-            _displayW = dm.Width;
-            _displayH = dm.Height;
+            // Use native display mode — actual dimensions set in Initialize() after device is ready
+            _displayW = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width;
+            _displayH = GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height;
         }
         if (_learnedMode)
         {
@@ -293,13 +283,14 @@ public class FlappyBrainGameV2 : Game
     {
         if (_fullscreen)
         {
-            _graphics.IsFullScreen = false;
+            _graphics.PreferredBackBufferWidth  = _displayW;
+            _graphics.PreferredBackBufferHeight = _displayH;
+            _graphics.HardwareModeSwitch = false;   // borderless (not exclusive fullscreen)
+            _graphics.IsFullScreen = true;
             _graphics.ApplyChanges();
-            Window.IsBorderless = true;
-            Window.Position = new Microsoft.Xna.Framework.Point(0, 0);
-            _graphics.ApplyChanges();
-            // Force Win32 window position immediately
-            SetWindowPos(Window.Handle, HWND_TOPMOST, 0, 0, _displayW, _displayH, SWP_SHOWWINDOW);
+            // Read back the ACTUAL back buffer size MonoGame allocated
+            _displayW = GraphicsDevice.PresentationParameters.BackBufferWidth;
+            _displayH = GraphicsDevice.PresentationParameters.BackBufferHeight;
         }
         PreGenerateSectionLayout();
 
@@ -567,13 +558,6 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Update(GameTime gameTime)
     {
-        // Re-apply fullscreen via Win32 on first few frames to overcome MonoGame window drift
-        if (_fullscreen && !_fullscreenApplied)
-        {
-            SetWindowPos(Window.Handle, HWND_TOPMOST, 0, 0, _displayW, _displayH, SWP_SHOWWINDOW);
-            _fullscreenApplied = true;
-        }
-
         float dt = (float)gameTime.ElapsedGameTime.TotalSeconds;
 
         // ===== BCI Gravity Slowdown =====
