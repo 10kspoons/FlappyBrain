@@ -4,9 +4,9 @@ using System.Linq;
 bool aiMode       = args.Any(a => a == "--ai");
 bool learnedMode  = args.Any(a => a == "--ai-learned");
 bool outbackTheme = args.Any(a => a == "--theme-outback");
-bool fullscreen   = args.Any(a => a == "--fullscreen" || a == "-f");
+bool fullscreen   = true;   // always fullscreen
 bool slowGravity  = args.Any(a => a == "--slow-gravity");
-bool enableBci    = args.Any(a => a == "--bci");
+bool enableBci    = true;   // BCI always enabled
 bool skipTraining = args.Any(a => a == "--skip-training");
 if (learnedMode) aiMode = true;
 
