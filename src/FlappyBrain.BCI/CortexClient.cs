@@ -28,8 +28,17 @@ public sealed class CortexClient : IAsyncDisposable
     public bool IsConnected { get; private set; }
     public double LastCommandPower { get; private set; }
     public string LastCommand { get; private set; } = "";
+    public IReadOnlyDictionary<string, string> ContactQuality => _contactQuality;
     public event Action<string, double>? OnMentalCommand;
     public event Action<string>? OnTrainingEvent;
+    public event Action<string>? OnTrainingSucceeded;
+    public event Action<string, string>? OnTrainingFailed;
+    public event Action<IReadOnlyDictionary<string, string>>? OnContactQualityUpdated;
+
+    // 14-channel Epoc X electrode order (matches Cortex dev stream order).
+    private static readonly string[] EpocXElectrodes =
+        { "AF3", "F7", "F3", "FC5", "T7", "P7", "O1", "O2", "P8", "T8", "FC6", "F4", "F8", "AF4" };
+    private readonly Dictionary<string, string> _contactQuality = new();
 
     public CortexClient(CortexConfig config) => _config = config;
 
@@ -88,8 +97,8 @@ public sealed class CortexClient : IAsyncDisposable
             catch { Console.WriteLine("[Cortex] No saved profile found — training required."); }
         }
 
-        await RpcAsync("subscribe", new { cortexToken = _token, session = _sessionId, streams = new[] { "com", "met", "sys" } }, ct);
-        Console.WriteLine("[Cortex] Subscribed to com + met + sys streams.");
+        await RpcAsync("subscribe", new { cortexToken = _token, session = _sessionId, streams = new[] { "com", "met", "sys", "dev" } }, ct);
+        Console.WriteLine("[Cortex] Subscribed to com + met + sys + dev streams.");
 
         while (!ct.IsCancellationRequested && _ws.State == WebSocketState.Open)
         {
@@ -123,14 +132,54 @@ public sealed class CortexClient : IAsyncDisposable
             catch { }
         }
 
-        // System / training events
+        // System / training events.
+        // Cortex sys frame: ["mentalCommand", "MC_Succeeded", ...] or similar.
         if (evt["sys"] is JsonArray sys && sys.Count >= 2)
         {
             var evtType = sys[1]?.GetValue<string>() ?? "";
             OnTrainingEvent?.Invoke(evtType);
             Console.WriteLine($"[Cortex] Training event: {evtType}");
+
+            // Map the well-known mental-command training events to typed events.
+            // The "current action" is whatever the most recent StartTrainingAsync set.
+            switch (evtType)
+            {
+                case "MC_Succeeded":
+                    OnTrainingSucceeded?.Invoke(_currentTrainingAction);
+                    break;
+                case "MC_Failed":
+                    OnTrainingFailed?.Invoke(_currentTrainingAction, "Cortex rejected the rep");
+                    break;
+            }
+        }
+
+        // Device / contact-quality stream.
+        // Frame shape: { "dev": [overallSignal, batteryPercent, [q1..q14], cqOverall], "time": ... }
+        if (evt["dev"] is JsonArray dev && dev.Count >= 3 && dev[2] is JsonArray cqs)
+        {
+            bool updated = false;
+            for (int i = 0; i < EpocXElectrodes.Length && i < cqs.Count; i++)
+            {
+                // Cortex contact quality values: 0=no signal, 1=very bad, 2=poor, 3=fair, 4=good.
+                int q = 0;
+                try { q = (int)(cqs[i]?.GetValue<double>() ?? 0); }
+                catch { try { q = cqs[i]?.GetValue<int>() ?? 0; } catch { } }
+                string label = q switch { >= 4 => "good", 3 => "fair", _ => "bad" };
+                var key = EpocXElectrodes[i];
+                if (!_contactQuality.TryGetValue(key, out var prev) || prev != label)
+                {
+                    _contactQuality[key] = label;
+                    updated = true;
+                }
+            }
+            if (updated)
+            {
+                OnContactQualityUpdated?.Invoke(_contactQuality);
+            }
         }
     }
+
+    private string _currentTrainingAction = "neutral";
 
     // ── In-app training API ───────────────────────────────────────────────────
 
@@ -138,6 +187,7 @@ public sealed class CortexClient : IAsyncDisposable
     public async Task StartTrainingAsync(string action, CancellationToken ct = default)
     {
         if (_token == null || _sessionId == null) throw new InvalidOperationException("Not connected.");
+        _currentTrainingAction = action;
         await RpcAsync("training", new { cortexToken = _token, session = _sessionId, detection = "mentalCommand", action, status = "start" }, ct);
     }
 
@@ -153,6 +203,39 @@ public sealed class CortexClient : IAsyncDisposable
     {
         if (_token == null || _sessionId == null) throw new InvalidOperationException("Not connected.");
         await RpcAsync("training", new { cortexToken = _token, session = _sessionId, detection = "mentalCommand", action, status = "reject" }, ct);
+    }
+
+    /// <summary>Erase all training data for the given action.</summary>
+    public async Task EraseTrainingAsync(string action, CancellationToken ct = default)
+    {
+        if (_token == null || _sessionId == null) throw new InvalidOperationException("Not connected.");
+        await RpcAsync("training", new { cortexToken = _token, session = _sessionId, detection = "mentalCommand", action, status = "erase" }, ct);
+    }
+
+    /// <summary>Returns the list of mental-command actions currently active for this profile.</summary>
+    public async Task<string[]> GetTrainedActionsAsync(CancellationToken ct = default)
+    {
+        if (_token == null) throw new InvalidOperationException("Not connected.");
+        var resp = await RpcAsync("mentalCommandActiveAction",
+            new { cortexToken = _token, status = "get", profile = _config.ProfileName }, ct);
+        if (resp?["result"] is JsonArray arr)
+        {
+            var actions = new List<string>(arr.Count);
+            foreach (var node in arr)
+            {
+                var s = node?.GetValue<string>();
+                if (!string.IsNullOrEmpty(s)) actions.Add(s);
+            }
+            return actions.ToArray();
+        }
+        return Array.Empty<string>();
+    }
+
+    /// <summary>Snapshot of the latest per-electrode contact quality. Returns "good"/"fair"/"bad" per channel.</summary>
+    public IReadOnlyDictionary<string, string> GetHeadsetContactQuality()
+    {
+        // Return a defensive copy so external readers aren't racing on the live dictionary.
+        return new Dictionary<string, string>(_contactQuality);
     }
 
     /// <summary>Save the current training profile to Emotiv cloud.</summary>

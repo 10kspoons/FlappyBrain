@@ -1,5 +1,6 @@
 using System;
 using FlappyBrain.BCI;
+using FlappyBrain.Scenes;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
@@ -97,9 +98,11 @@ public class FlappyBrainGameV2 : Game
     const float PIPE_W = 90f;
 
     // ===== State machine =====
-    enum GameState { Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory, Paused, Leaderboard, Training }
+    enum GameState { Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory, Paused, Leaderboard, Training, InAppTraining }
 
     GameState _state = GameState.Leaderboard;
+    bool _skipTraining;
+    TrainingScene? _trainingScene;
     float _stateTimer = 0f;
     float _leaderboardScroll = 0f;
     float _leaderboardTitlePulse = 0f;
@@ -211,8 +214,9 @@ public class FlappyBrainGameV2 : Game
     bool _learnedMode;
     float[,]? _qTable;
 
-    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false, bool fullscreen = false, string theme = "", bool slowGravity = false, bool enableBci = false)
+    public FlappyBrainGameV2(bool aiMode = false, bool learnedMode = false, bool outbackTheme = false, bool fullscreen = false, string theme = "", bool slowGravity = false, bool enableBci = false, bool skipTraining = false)
     {
+        _skipTraining = skipTraining;
         _graphics = new GraphicsDeviceManager(this)
         {
             PreferredBackBufferWidth = LogW,
@@ -299,7 +303,21 @@ public class FlappyBrainGameV2 : Game
             ShowWindow(Window.Handle, 3); // SW_MAXIMIZE
         }
         PreGenerateSectionLayout();
-        ResetToLeaderboard();
+
+        if (_bciEnabled && !_skipTraining)
+        {
+            _trainingScene = new TrainingScene(
+                _cortexClient,
+                (text, x, y, sz, c, centered, outline) => DrawBigText(text, x, y, sz, c, centered, outline),
+                (x, y, w, h, c) => DrawRect(x, y, w, h, c),
+                (cx, cy, r, c) => DrawCircle(cx, cy, r, c));
+            _state = GameState.InAppTraining;
+        }
+        else
+        {
+            ResetToLeaderboard();
+        }
+
         StartHttpControlServer();
         base.Initialize();
     }
@@ -602,7 +620,7 @@ public class FlappyBrainGameV2 : Game
         bool restartPressed = kb.IsKeyDown(Keys.R) && _prevKb.IsKeyUp(Keys.R);
         bool pausePressed = kb.IsKeyDown(Keys.P) && _prevKb.IsKeyUp(Keys.P);
 
-        if (restartPressed)
+        if (restartPressed && _state != GameState.InAppTraining)
         {
             ResetToLeaderboard();
             _prevKb = kb;
@@ -700,6 +718,24 @@ public class FlappyBrainGameV2 : Game
                 if (_stateTimer >= 30f)
                 {
                     ResetToLeaderboard();
+                }
+                break;
+
+            case GameState.InAppTraining:
+                if (_trainingScene != null)
+                {
+                    _trainingScene.Update(dt, kb);
+                    if (_trainingScene.IsComplete)
+                    {
+                        if (_trainingScene.Result == TrainingScene.Outcome.Skipped)
+                        {
+                            // User opted to play with keyboard only — disable BCI for this session.
+                            _bciEnabled = false;
+                        }
+                        _trainingScene.Detach();
+                        _trainingScene = null;
+                        ResetToLeaderboard();
+                    }
                 }
                 break;
         }
@@ -1109,6 +1145,14 @@ public class FlappyBrainGameV2 : Game
         {
             DrawLeaderboardScene();
             if (_state == GameState.Training) DrawTrainingOverlay();
+            _spriteBatch.End();
+            if (!_fullscreen) base.Draw(gameTime);
+            return;
+        }
+
+        if (_state == GameState.InAppTraining && _trainingScene != null)
+        {
+            _trainingScene.Draw();
             _spriteBatch.End();
             if (!_fullscreen) base.Draw(gameTime);
             return;
