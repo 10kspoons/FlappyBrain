@@ -185,6 +185,7 @@ public class FlappyBrainGameV2 : Game
     CortexClient? _cortexClient;
     bool _bciEnabled = false;
     int _displayW, _displayH;
+    bool _diagDumped = false;
 
     RenderTarget2D? _renderTarget;
 
@@ -1098,6 +1099,27 @@ public class FlappyBrainGameV2 : Game
 
     protected override void Draw(GameTime gameTime)
     {
+        if (!_diagDumped)
+        {
+            _diagDumped = true;
+            try
+            {
+                var vp = GraphicsDevice.Viewport;
+                var pp = GraphicsDevice.PresentationParameters;
+                var cb = Window.ClientBounds;
+                var diag = $"Viewport: {vp.X},{vp.Y} {vp.Width}x{vp.Height}\n" +
+                           $"BackBuffer: {pp.BackBufferWidth}x{pp.BackBufferHeight}\n" +
+                           $"ClientBounds: {cb.X},{cb.Y} {cb.Width}x{cb.Height}\n" +
+                           $"DisplayMode: {GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Width}x{GraphicsAdapter.DefaultAdapter.CurrentDisplayMode.Height}\n" +
+                           $"_displayW: {_displayW}, _displayH: {_displayH}\n" +
+                           $"LogW: {LogW}, LogH: {LogH}\n" +
+                           $"IsFullscreen: {_fullscreen}\n" +
+                           $"IsFullScreenMode: {_graphics.IsFullScreen}\n";
+                System.IO.File.WriteAllText(@"C:\temp\fb-diag.txt", diag);
+            }
+            catch { }
+        }
+
         if (_fullscreen && _renderTarget != null)
         {
             GraphicsDevice.SetRenderTarget(_renderTarget);
