@@ -1350,7 +1350,7 @@ public class FlappyBrainGameV2 : Game
         int[] widths  = { 40, 25, 55, 30, 70, 20, 45, 35, 50, 28 };
         int[] heights = { 180, 120, 220, 140, 160, 90, 200, 130, 175, 110 };
         int x = -200;
-        for (int i = 0; i < widths.Length * 3; i++)
+        for (int i = 0; i < widths.Length * 5; i++)
         {
             int idx = i % widths.Length;
             int bx = (int)(x - offset + LogW);
@@ -1370,7 +1370,7 @@ public class FlappyBrainGameV2 : Game
         int[] w2 = { 28, 18, 36, 22, 48, 16, 32 };
         int[] h2 = { 80, 50, 100, 60, 70, 40, 90 };
         int x2 = -120;
-        for (int i = 0; i < w2.Length * 4; i++)
+        for (int i = 0; i < w2.Length * 7; i++)
         {
             int idx = i % w2.Length;
             int bx = (int)(x2 - offset2 + LogW);
