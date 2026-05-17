@@ -610,6 +610,7 @@ public class FlappyBrainGameV2 : Game
                            (kb.IsKeyDown(Keys.Up) && _prevKb.IsKeyUp(Keys.Up));
         bool restartPressed = kb.IsKeyDown(Keys.R) && _prevKb.IsKeyUp(Keys.R);
         bool pausePressed = kb.IsKeyDown(Keys.P) && _prevKb.IsKeyUp(Keys.P);
+        bool retrainPressed = kb.IsKeyDown(Keys.T) && _prevKb.IsKeyUp(Keys.T);
 
         if (restartPressed && _state != GameState.InAppTraining)
         {
@@ -635,6 +636,10 @@ public class FlappyBrainGameV2 : Game
                 {
                     BeginGameRun();
                 }
+                else if (retrainPressed && _bciEnabled && _trainingScene == null)
+                {
+                    StartInAppRetrain();
+                }
                 break;
 
             case GameState.Menu:
@@ -642,6 +647,10 @@ public class FlappyBrainGameV2 : Game
                 if (flapPressed)
                 {
                     BeginGameRun();
+                }
+                else if (retrainPressed && _bciEnabled && _trainingScene == null)
+                {
+                    StartInAppRetrain();
                 }
                 break;
 
@@ -796,6 +805,23 @@ public class FlappyBrainGameV2 : Game
     {
         Console.WriteLine("[train] training requested — entering training mode (BCI calibration stub)");
         _state = GameState.Training;
+        _stateTimer = 0;
+    }
+
+    /// <summary>
+    /// Operator pressed T on the attract/leaderboard screen — restart the in-app
+    /// Cortex training flow so the next attendee can calibrate without restarting the kiosk.
+    /// </summary>
+    void StartInAppRetrain()
+    {
+        Console.WriteLine("[train] T pressed on leaderboard — restarting in-app BCI training");
+        _trainingScene = new TrainingScene(
+            _cortexClient,
+            (text, x, y, sz, c, centered, outline) => DrawBigText(text, x, y, sz, c, centered, outline),
+            (x, y, w, h, c) => DrawRect(x, y, w, h, c),
+            (cx, cy, r, c) => DrawCircle(cx, cy, r, c));
+        _trainingScene.Reset();
+        _state = GameState.InAppTraining;
         _stateTimer = 0;
     }
 
@@ -1297,6 +1323,11 @@ public class FlappyBrainGameV2 : Game
         float promptA = 0.65f + t * 0.35f;
         DrawBigText(prompt, LogW / 2f, LogH - 70, 26, cyan * promptA, centered: true, outline: true);
         DrawBigText("OR USE OPERATOR CONSOLE", LogW / 2f, LogH - 38, 14, Color.White * 0.5f, centered: true);
+        if (_bciEnabled)
+        {
+            DrawBigText("T = RETRAIN HEADSET", LogW / 2f, LogH - 20, 13,
+                new Color(0x40, 0xE0, 0xFF) * 0.65f, centered: true);
+        }
     }
 
     static string SanitizeName(string n)

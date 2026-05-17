@@ -107,6 +107,24 @@ public sealed class TrainingScene
         }
     }
 
+    /// <summary>
+    /// Reset the scene to its initial state so the same instance can be reused
+    /// (e.g. operator re-triggers training for the next conference attendee).
+    /// </summary>
+    public void Reset()
+    {
+        CurrentPhase = Phase.HeadsetCheck;
+        Result = Outcome.InProgress;
+        _phaseTimer = 0;
+        _currentRep = 0;
+        _consecutiveRejects = 0;
+        _repTimer = 0;
+        _repState = RepState.Countdown;
+        _waitingForCortexResult = false;
+        _statusMessage = "";
+        _continueAvailable = false;
+    }
+
     void HandleTrainingSucceeded(string action)
     {
         if (CurrentPhase != Phase.LiftTraining && CurrentPhase != Phase.NeutralBaseline) return;
@@ -342,7 +360,72 @@ public sealed class TrainingScene
             case Phase.LiftTraining:     DrawLiftTraining(); break;
             case Phase.Complete:         DrawComplete(); break;
         }
+        // Persistent signal-quality indicator — visible in every phase so staff can
+        // spot mid-session electrode dropout. Phase 0 has its own large readout, so skip there.
+        if (CurrentPhase != Phase.HeadsetCheck)
+        {
+            DrawConnectionIndicator();
+        }
         DrawSkipFooter();
+    }
+
+    /// <summary>
+    /// Compact electrode-quality readout for the top-right corner. One small dot per
+    /// electrode plus an overall SIGNAL: GOOD/FAIR/POOR label.
+    /// </summary>
+    void DrawConnectionIndicator()
+    {
+        var cq = _cortex?.GetHeadsetContactQuality();
+
+        // Count quality buckets to derive the overall label.
+        int good = 0, fair = 0;
+        foreach (var (name, _, _) in Electrodes)
+        {
+            if (cq != null && cq.TryGetValue(name, out var v))
+            {
+                if (v == "good") good++;
+                else if (v == "fair") fair++;
+            }
+        }
+
+        string label;
+        Color labelCol;
+        if (good >= MIN_GOOD_CONTACTS) { label = "SIGNAL: GOOD"; labelCol = Good; }
+        else if (good + fair >= MIN_GOOD_CONTACTS) { label = "SIGNAL: FAIR"; labelCol = Fair; }
+        else { label = "SIGNAL: POOR"; labelCol = Bad; }
+
+        // Layout: small dot row + label, anchored to top-right.
+        const float dotR = 3.5f;
+        const float spacing = 9f;
+        float dotsW = (Electrodes.Length - 1) * spacing;
+        float rightPad = 12f;
+        float topPad = 10f;
+
+        // Background pill behind the indicator for legibility against scene backdrops.
+        float pillW = dotsW + 130f;
+        float pillH = 28f;
+        float pillX = LogW - rightPad - pillW;
+        float pillY = topPad;
+        _drawRect(pillX, pillY, pillW, pillH, new Color(0, 0, 0, 0x70));
+
+        // Dot row (left side of the pill)
+        float dotsStartX = pillX + 8f;
+        float dotsY = pillY + pillH / 2f;
+        foreach (var (name, _, _) in Electrodes)
+        {
+            Color dot;
+            if (cq != null && cq.TryGetValue(name, out var v))
+            {
+                dot = v switch { "good" => Good, "fair" => Fair, _ => Bad };
+            }
+            else dot = Bad;
+            _drawCircle(dotsStartX, dotsY, dotR, dot);
+            dotsStartX += spacing;
+        }
+
+        // Label (right side of the pill)
+        float labelX = pillX + pillW - 8f;
+        _drawTextFn(label, labelX - 50f, dotsY, 11, labelCol, true, false);
     }
 
     void DrawBackground()
