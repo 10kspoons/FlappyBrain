@@ -598,7 +598,14 @@ public class FlappyBrainGameV2 : Game
         }
         var kb = Keyboard.GetState();
 
-        if (kb.IsKeyDown(Keys.Escape)) Exit();
+        // ESC from LaunchMenu = exit app; ESC from anywhere else = return to launch menu
+        if (kb.IsKeyDown(Keys.Escape) && _prevKb.IsKeyUp(Keys.Escape))
+        {
+            if (_state == GameState.LaunchMenu)
+                Exit();
+            else
+                ReturnToLaunchMenu();
+        }
 
         // Drain HTTP command queue on the game thread
         while (_commandQueue.TryDequeue(out var c))
@@ -820,38 +827,57 @@ public class FlappyBrainGameV2 : Game
 
     void UpdateLaunchMenu(KeyboardState kb)
     {
-        bool upPressed   = (kb.IsKeyDown(Keys.Up) && _prevKb.IsKeyUp(Keys.Up)) ||
-                           (kb.IsKeyDown(Keys.W)  && _prevKb.IsKeyUp(Keys.W));
-        bool downPressed = (kb.IsKeyDown(Keys.Down) && _prevKb.IsKeyUp(Keys.Down)) ||
-                           (kb.IsKeyDown(Keys.S)    && _prevKb.IsKeyUp(Keys.S));
-        bool confirmPressed = (kb.IsKeyDown(Keys.Enter) && _prevKb.IsKeyUp(Keys.Enter)) ||
-                              (kb.IsKeyDown(Keys.Space) && _prevKb.IsKeyUp(Keys.Space));
+        bool key1 = (kb.IsKeyDown(Keys.D1) && _prevKb.IsKeyUp(Keys.D1)) ||
+                    (kb.IsKeyDown(Keys.NumPad1) && _prevKb.IsKeyUp(Keys.NumPad1));
+        bool key2 = (kb.IsKeyDown(Keys.D2) && _prevKb.IsKeyUp(Keys.D2)) ||
+                    (kb.IsKeyDown(Keys.NumPad2) && _prevKb.IsKeyUp(Keys.NumPad2));
+        bool key3 = (kb.IsKeyDown(Keys.D3) && _prevKb.IsKeyUp(Keys.D3)) ||
+                    (kb.IsKeyDown(Keys.NumPad3) && _prevKb.IsKeyUp(Keys.NumPad3));
 
-        if (upPressed)   _launchMenuSelection = (_launchMenuSelection + 2) % 3;
-        if (downPressed) _launchMenuSelection = (_launchMenuSelection + 1) % 3;
-
-        if (confirmPressed)
+        if (key1)
         {
-            _launchMode = (LaunchMode)_launchMenuSelection;
-            switch (_launchMode)
-            {
-                case LaunchMode.TrainAndPlay:
-                    _bciEnabled = true;
-                    _skipTraining = false;
-                    StartBciOrGame();
-                    break;
-                case LaunchMode.ExistingTraining:
-                    _bciEnabled = true;
-                    _skipTraining = true;
-                    StartBciOrGame();
-                    break;
-                case LaunchMode.Keyboard:
-                    _bciEnabled = false;
-                    _skipTraining = true;
-                    ResetToLeaderboard();
-                    break;
-            }
+            _launchMenuSelection = 0;
+            _launchMode = LaunchMode.TrainAndPlay;
+            _bciEnabled = true;
+            _skipTraining = false;
+            StartBciOrGame();
         }
+        else if (key2)
+        {
+            _launchMenuSelection = 1;
+            _launchMode = LaunchMode.ExistingTraining;
+            _bciEnabled = true;
+            _skipTraining = true;
+            StartBciOrGame();
+        }
+        else if (key3)
+        {
+            _launchMenuSelection = 2;
+            _launchMode = LaunchMode.Keyboard;
+            _bciEnabled = false;
+            _skipTraining = true;
+            ResetToLeaderboard();
+        }
+    }
+
+    void ReturnToLaunchMenu()
+    {
+        if (_cortexClient != null)
+        {
+            try { _ = _cortexClient.DisposeAsync(); } catch { }
+            _cortexClient = null;
+        }
+        if (_trainingScene != null)
+        {
+            try { _trainingScene.Detach(); } catch { }
+            _trainingScene = null;
+        }
+        _bciEnabled = false;
+        _skipTraining = true;
+        _launchMenuSelection = 0;
+        _launchMode = LaunchMode.TrainAndPlay;
+        ResetToMenu();
+        _state = GameState.LaunchMenu;
     }
 
     /// <summary>
@@ -1412,6 +1438,10 @@ public class FlappyBrainGameV2 : Game
             DrawBigText("T = RETRAIN HEADSET", LogW / 2f, LogH - 20, 13,
                 new Color(0x40, 0xE0, 0xFF) * 0.65f, centered: true);
         }
+
+        // ESC hint bottom-left
+        DrawBigText("ESC = MAIN MENU", 16, LogH - 22, 13,
+            Color.White * 0.5f, centered: false);
     }
 
     static string SanitizeName(string n)
@@ -1767,9 +1797,9 @@ public class FlappyBrainGameV2 : Game
 
         string[] labels =
         {
-            "TRAIN BRAIN + PLAY",
-            "PLAY WITH EXISTING TRAINING",
-            "PLAY WITH SPACE BAR",
+            "[1]  TRAIN BRAIN + PLAY",
+            "[2]  PLAY WITH EXISTING TRAINING",
+            "[3]  PLAY WITH SPACE BAR",
         };
 
         float baseY = 280;
@@ -1778,14 +1808,15 @@ public class FlappyBrainGameV2 : Game
         {
             bool selected = (i == _launchMenuSelection);
             float y = baseY + i * rowH;
-            string text = selected ? "> " + labels[i] + " <" : "  " + labels[i] + "  ";
-            Color col = selected ? Color.White : new Color(140, 140, 140);
-            int size = selected ? 28 : 24;
-            DrawBigText(text, LogW / 2f, y, size, col, centered: true, outline: selected);
+            Color col = selected ? Color.White : new Color(200, 200, 200);
+            int size = selected ? 28 : 26;
+            DrawBigText(labels[i], LogW / 2f, y, size, col, centered: true, outline: true);
         }
 
-        DrawBigText("USE UP DOWN TO SELECT  ENTER TO CONFIRM", LogW / 2f, LogH - 60, 16,
+        DrawBigText("PRESS 1, 2, OR 3 TO SELECT", LogW / 2f, LogH - 60, 16,
             Color.White * 0.6f, centered: true);
+        DrawBigText("ESC = QUIT", LogW / 2f, LogH - 38, 13,
+            Color.White * 0.45f, centered: true);
     }
 
     void DrawMenu()
@@ -1796,7 +1827,7 @@ public class FlappyBrainGameV2 : Game
         DrawBigText("Survive each section. Die = retry.", LogW / 2f, 290, 22, Color.White, centered: true);
         DrawBigText("+1 per pipe  •  +5 per section", LogW / 2f, 325, 22, new Color(0x40, 0xFF, 0x80), centered: true);
         DrawBigText("Press SPACE / UP to start", LogW / 2f, 410, 28, Color.White, centered: true, outline: true);
-        DrawBigText("R = restart  •  ESC = quit", LogW / 2f, 460, 18, new Color(180, 180, 180), centered: true);
+        DrawBigText("R = restart  •  ESC = Main Menu", LogW / 2f, 460, 18, new Color(180, 180, 180), centered: true);
         if (_bestScore > 0)
         {
             DrawBigText($"Best: {_bestScore}", LogW / 2f, 510, 22, new Color(0xFF, 0xD0, 0x40), centered: true);
@@ -1834,6 +1865,10 @@ public class FlappyBrainGameV2 : Game
         {
             DrawBigText($"ATTEMPT {_sectionAttempts}", 16, 100, 18, new Color(255, 80, 80), centered: false, outline: true);
         }
+
+        // ESC hint bottom-left
+        DrawBigText("ESC = Main Menu", 16, LogH - 22, 13,
+            Color.White * 0.5f, centered: false);
     }
 
     // ===== Primitive draw helpers =====
