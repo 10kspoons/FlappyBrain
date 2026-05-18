@@ -98,7 +98,11 @@ public class FlappyBrainGameV2 : Game
     const float PIPE_W = 90f;
 
     // ===== State machine =====
-    enum GameState { Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory, Paused, Leaderboard, Training, InAppTraining }
+    enum GameState { LaunchMenu, Menu, Playing, GoreAnimation, SectionRetry, SectionTransition, SectionComplete, Victory, Paused, Leaderboard, Training, InAppTraining }
+
+    enum LaunchMode { TrainAndPlay, ExistingTraining, Keyboard }
+    LaunchMode _launchMode = LaunchMode.TrainAndPlay;
+    int _launchMenuSelection = 0; // 0, 1, or 2
 
     GameState _state = GameState.Leaderboard;
     bool _skipTraining;
@@ -184,6 +188,8 @@ public class FlappyBrainGameV2 : Game
     bool _slowGravityMode = false;         // --slow-gravity flag: always slow
     CortexClient? _cortexClient;
     bool _bciEnabled = false;
+    bool _skipTrainingCliOverride = false;
+    bool _aiBypassesLaunchMenu = false;
     int _displayW, _displayH;
 
     RenderTarget2D? _renderTarget;
@@ -226,17 +232,12 @@ public class FlappyBrainGameV2 : Game
         _themeName = string.IsNullOrEmpty(theme) ? (outbackTheme ? "outback" : "") : theme;
         _themePalette = string.IsNullOrEmpty(_themeName) ? Themes.Get("outback") : Themes.Get(_themeName);
 
-        // Gravity slowdown / BCI init
+        // Gravity slowdown / BCI init (deferred — actual BCI start happens after launch menu selection)
         _slowGravityMode = slowGravity;
         if (_slowGravityMode) _gravityScale = GRAVITY_SLOW_SCALE;
         _bciEnabled = enableBci;
-        if (_bciEnabled)
-        {
-            var config = new CortexConfig { ProfileName = "flappybrain", ActionMap = "push", PowerThreshold = 0.5 };
-            _cortexClient = new CortexClient(config);
-            _ = _cortexClient.StartAsync();
-            Console.WriteLine("[BCI] Cortex client started — connecting to Epoc X on wss://localhost:6868...");
-        }
+        _skipTrainingCliOverride = skipTraining;
+        _aiBypassesLaunchMenu = aiMode || learnedMode;
 
         if (fullscreen)
         {
@@ -302,18 +303,23 @@ public class FlappyBrainGameV2 : Game
         }
         PreGenerateSectionLayout();
 
-        if (_bciEnabled && !_skipTraining)
+        // Launch menu is the default entry — unless CLI overrides bypass it.
+        if (_aiBypassesLaunchMenu)
         {
-            _trainingScene = new TrainingScene(
-                _cortexClient,
-                (text, x, y, sz, c, centered, outline) => DrawBigText(text, x, y, sz, c, centered, outline),
-                (x, y, w, h, c) => DrawRect(x, y, w, h, c),
-                (cx, cy, r, c) => DrawCircle(cx, cy, r, c));
-            _state = GameState.InAppTraining;
+            // --ai / --ai-learned: skip menu, go straight to keyboard/AI mode (no BCI).
+            _bciEnabled = false;
+            _skipTraining = true;
+            ResetToLeaderboard();
+        }
+        else if (_skipTrainingCliOverride && _bciEnabled)
+        {
+            // --skip-training (with BCI available): option 1 — BCI on, skip training, go to Menu.
+            _skipTraining = true;
+            StartBciOrGame();
         }
         else
         {
-            ResetToLeaderboard();
+            _state = GameState.LaunchMenu;
         }
 
         StartHttpControlServer();
@@ -612,7 +618,7 @@ public class FlappyBrainGameV2 : Game
         bool pausePressed = kb.IsKeyDown(Keys.P) && _prevKb.IsKeyUp(Keys.P);
         bool retrainPressed = kb.IsKeyDown(Keys.T) && _prevKb.IsKeyUp(Keys.T);
 
-        if (restartPressed && _state != GameState.InAppTraining)
+        if (restartPressed && _state != GameState.InAppTraining && _state != GameState.LaunchMenu)
         {
             ResetToLeaderboard();
             _prevKb = kb;
@@ -630,6 +636,10 @@ public class FlappyBrainGameV2 : Game
 
         switch (_state)
         {
+            case GameState.LaunchMenu:
+                UpdateLaunchMenu(kb);
+                break;
+
             case GameState.Leaderboard:
                 _leaderboardScroll += dt * 30f; // slow continuous parallax scroll
                 if (flapPressed)
@@ -806,6 +816,72 @@ public class FlappyBrainGameV2 : Game
         Console.WriteLine("[train] training requested — entering training mode (BCI calibration stub)");
         _state = GameState.Training;
         _stateTimer = 0;
+    }
+
+    void UpdateLaunchMenu(KeyboardState kb)
+    {
+        bool upPressed   = (kb.IsKeyDown(Keys.Up) && _prevKb.IsKeyUp(Keys.Up)) ||
+                           (kb.IsKeyDown(Keys.W)  && _prevKb.IsKeyUp(Keys.W));
+        bool downPressed = (kb.IsKeyDown(Keys.Down) && _prevKb.IsKeyUp(Keys.Down)) ||
+                           (kb.IsKeyDown(Keys.S)    && _prevKb.IsKeyUp(Keys.S));
+        bool confirmPressed = (kb.IsKeyDown(Keys.Enter) && _prevKb.IsKeyUp(Keys.Enter)) ||
+                              (kb.IsKeyDown(Keys.Space) && _prevKb.IsKeyUp(Keys.Space));
+
+        if (upPressed)   _launchMenuSelection = (_launchMenuSelection + 2) % 3;
+        if (downPressed) _launchMenuSelection = (_launchMenuSelection + 1) % 3;
+
+        if (confirmPressed)
+        {
+            _launchMode = (LaunchMode)_launchMenuSelection;
+            switch (_launchMode)
+            {
+                case LaunchMode.TrainAndPlay:
+                    _bciEnabled = true;
+                    _skipTraining = false;
+                    StartBciOrGame();
+                    break;
+                case LaunchMode.ExistingTraining:
+                    _bciEnabled = true;
+                    _skipTraining = true;
+                    StartBciOrGame();
+                    break;
+                case LaunchMode.Keyboard:
+                    _bciEnabled = false;
+                    _skipTraining = true;
+                    ResetToLeaderboard();
+                    break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Apply the launch menu selection: optionally bring up the Cortex BCI client,
+    /// and route to either the in-app training scene or directly to the leaderboard/menu.
+    /// </summary>
+    void StartBciOrGame()
+    {
+        if (_bciEnabled && _cortexClient == null)
+        {
+            var config = new CortexConfig { ProfileName = "flappybrain", ActionMap = "push", PowerThreshold = 0.5 };
+            _cortexClient = new CortexClient(config);
+            _ = _cortexClient.StartAsync();
+            Console.WriteLine("[BCI] Cortex client started — connecting to Epoc X on wss://localhost:6868...");
+        }
+
+        if (_bciEnabled && !_skipTraining)
+        {
+            _trainingScene = new TrainingScene(
+                _cortexClient,
+                (text, x, y, sz, c, centered, outline) => DrawBigText(text, x, y, sz, c, centered, outline),
+                (x, y, w, h, c) => DrawRect(x, y, w, h, c),
+                (cx, cy, r, c) => DrawCircle(cx, cy, r, c));
+            _state = GameState.InAppTraining;
+            _stateTimer = 0;
+        }
+        else
+        {
+            ResetToLeaderboard();
+        }
     }
 
     /// <summary>
@@ -1158,6 +1234,14 @@ public class FlappyBrainGameV2 : Game
         GraphicsDevice.Clear(_outbackTheme ? new Color(0x1A, 0x0F, 0x08) : new Color(0x6E, 0xC8, 0xE6));
 
         _spriteBatch.Begin(samplerState: SamplerState.PointClamp);
+
+        if (_state == GameState.LaunchMenu)
+        {
+            DrawLaunchMenu();
+            _spriteBatch.End();
+            if (!_fullscreen) base.Draw(gameTime);
+            return;
+        }
 
         if (_state == GameState.Leaderboard || _state == GameState.Training)
         {
@@ -1659,6 +1743,49 @@ public class FlappyBrainGameV2 : Game
         DrawBigText($"All {TOTAL_SECTIONS} sections cleared!", LogW / 2f, 320, 28, new Color(0x40, 0xFF, 0x80), centered: true);
         DrawBigText($"Best: {_bestScore}", LogW / 2f, 370, 24, new Color(200, 200, 200), centered: true);
         DrawBigText("Press SPACE to play again", LogW / 2f, 470, 24, Color.White, centered: true);
+    }
+
+    void DrawLaunchMenu()
+    {
+        // Theme-coloured sky gradient background
+        var c1 = _themePalette.SkyTop;
+        var c2 = _themePalette.SkyMid;
+        var c3 = _themePalette.SkyBot;
+        for (int y = 0; y < LogH; y++)
+        {
+            float t = y / (float)LogH;
+            Color c = t < 0.55f
+                ? Color.Lerp(c1, c2, t / 0.55f)
+                : Color.Lerp(c2, c3, (t - 0.55f) / 0.45f);
+            DrawRect(0, y, LogW, 1, c);
+        }
+        DrawRect(0, 0, LogW, LogH, Color.Black * 0.45f);
+
+        var amber = new Color(0xFF, 0xD0, 0x40);
+        DrawBigText("FLAPPY BRAIN", LogW / 2f, 90, 64, amber, centered: true, outline: true);
+        DrawBigText("CHOOSE LAUNCH MODE", LogW / 2f, 165, 22, Color.White * 0.85f, centered: true, outline: true);
+
+        string[] labels =
+        {
+            "TRAIN BRAIN + PLAY",
+            "PLAY WITH EXISTING TRAINING",
+            "PLAY WITH SPACE BAR",
+        };
+
+        float baseY = 280;
+        float rowH = 60;
+        for (int i = 0; i < labels.Length; i++)
+        {
+            bool selected = (i == _launchMenuSelection);
+            float y = baseY + i * rowH;
+            string text = selected ? "> " + labels[i] + " <" : "  " + labels[i] + "  ";
+            Color col = selected ? Color.White : new Color(140, 140, 140);
+            int size = selected ? 28 : 24;
+            DrawBigText(text, LogW / 2f, y, size, col, centered: true, outline: selected);
+        }
+
+        DrawBigText("USE UP DOWN TO SELECT  ENTER TO CONFIRM", LogW / 2f, LogH - 60, 16,
+            Color.White * 0.6f, centered: true);
     }
 
     void DrawMenu()

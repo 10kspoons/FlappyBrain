@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 
 // FlappyBrain Autopilot Simulation Test
+bool timingMode = args.Contains("--timing");
+var flapTimestamps = new List<float>();
+float globalTime = 0f;
 // Pure-physics simulation of FlappyBrainGameV2 — no MonoGame dependency.
 // Matches game constants and pipe pre-generation exactly.
 
@@ -60,7 +63,9 @@ Console.WriteLine();
 
 for (int section = 0; section < TOTAL_SECTIONS; section++)
 {
-    var result = SimulateSection(section, sectionPipes[section]);
+    float sectionStart = globalTime;
+    var result = SimulateSection(section, sectionPipes[section], flapTimestamps, sectionStart);
+    globalTime += SECTION_DURATION + 3f; // 3s transition
     results.Add(result);
     totalScore += result.ScoreEarned;
     totalCollisions += result.Collisions;
@@ -76,6 +81,7 @@ for (int section = 0; section < TOTAL_SECTIONS; section++)
 int sectionsCleared = results.Count(r => r.Cleared);
 Console.WriteLine();
 Console.WriteLine("======================================");
+File.WriteAllLines("/tmp/flap-times.txt", flapTimestamps.Select(t => t.ToString("F3")));
 Console.WriteLine($"RESULT: {sectionsCleared}/{TOTAL_SECTIONS} sections cleared");
 Console.WriteLine($"Total score: {totalScore}");
 Console.WriteLine($"Total collisions: {totalCollisions}");
@@ -95,7 +101,7 @@ else
 
 // ===== Simulation =====
 
-SectionResult SimulateSection(int section, float[] pipeGapYs)
+SectionResult SimulateSection(int section, float[] pipeGapYs, List<float> flapLog, float sectionStart)
 {
     int collisions = 0;
     int bestObstacles = 0;
@@ -103,7 +109,7 @@ SectionResult SimulateSection(int section, float[] pipeGapYs)
     // Up to MAX_RETRIES_PER_SECTION + 1 attempts (initial + N retries)
     for (int attempt = 0; attempt <= MAX_RETRIES_PER_SECTION; attempt++)
     {
-        var result = RunAttempt(section, pipeGapYs);
+        var result = RunAttempt(section, pipeGapYs, flapLog, sectionStart);
         if (result.Survived)
         {
             return new SectionResult
@@ -130,7 +136,7 @@ SectionResult SimulateSection(int section, float[] pipeGapYs)
     };
 }
 
-AttemptResult RunAttempt(int section, float[] pipeGapYs)
+AttemptResult RunAttempt(int section, float[] pipeGapYs, List<float> flapLog, float sectionStart)
 {
     float speed = SectionSpeed(section);
     float spawnInt = SectionSpawnInt(section);
@@ -173,7 +179,11 @@ AttemptResult RunAttempt(int section, float[] pipeGapYs)
         bool flap = AutopilotShouldFlap(birdX, birdY, birdVY, pipes, gapH);
 
         // 4. Apply flap
-        if (flap) birdVY = FLAP;
+        if (flap)
+        {
+            birdVY = FLAP;
+            flapLog.Add(sectionStart + t);
+        }
 
         // 5. Physics (matches game exactly: per-frame at fixed 60Hz)
         birdVY += GRAVITY;

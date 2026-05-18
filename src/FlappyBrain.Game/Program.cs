@@ -6,9 +6,14 @@ bool learnedMode  = args.Any(a => a == "--ai-learned");
 bool outbackTheme = args.Any(a => a == "--theme-outback");
 bool fullscreen   = true;   // always fullscreen
 bool slowGravity  = args.Any(a => a == "--slow-gravity");
-bool enableBci    = true;   // BCI always enabled
-bool skipTraining = args.Any(a => a == "--skip-training");
+bool skipTrainingFlag = args.Any(a => a == "--skip-training");
 if (learnedMode) aiMode = true;
+
+// BCI / training are chosen at runtime via the launch menu.
+// Defaults: BCI off, training skipped (the menu sets them).
+// --skip-training CLI override: skip menu, go to BCI + existing-training mode.
+bool enableBci    = skipTrainingFlag;
+bool skipTraining = skipTrainingFlag;
 
 // --theme <name> support: outback, safari, steampunk, postapoc, landmarks, spoons
 string themeName = "";
