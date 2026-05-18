@@ -102,7 +102,7 @@ public class FlappyBrainGameV2 : Game
 
     enum LaunchMode { TrainAndPlay, ExistingTraining, Keyboard }
     LaunchMode _launchMode = LaunchMode.TrainAndPlay;
-    int _launchMenuSelection = 0; // 0, 1, or 2
+    int _launchMenuSelection = 0; // 0, 1, 2, or 3
 
     GameState _state = GameState.Leaderboard;
     bool _skipTraining;
@@ -833,6 +833,8 @@ public class FlappyBrainGameV2 : Game
                     (kb.IsKeyDown(Keys.NumPad2) && _prevKb.IsKeyUp(Keys.NumPad2));
         bool key3 = (kb.IsKeyDown(Keys.D3) && _prevKb.IsKeyUp(Keys.D3)) ||
                     (kb.IsKeyDown(Keys.NumPad3) && _prevKb.IsKeyUp(Keys.NumPad3));
+        bool key4 = (kb.IsKeyDown(Keys.D4) && _prevKb.IsKeyUp(Keys.D4)) ||
+                    (kb.IsKeyDown(Keys.NumPad4) && _prevKb.IsKeyUp(Keys.NumPad4));
 
         if (key1)
         {
@@ -858,6 +860,28 @@ public class FlappyBrainGameV2 : Game
             _skipTraining = true;
             ResetToLeaderboard();
         }
+        else if (key4)
+        {
+            _launchMenuSelection = 3;
+            _launchMode = LaunchMode.Keyboard;
+            _bciEnabled = false;
+            _skipTraining = true;
+            _outbackTheme = true;
+            _themeName = "outback";
+            _themePalette = Themes.Get("outback");
+            TryLoadOutbackAssets();
+            ResetToLeaderboard();
+        }
+    }
+
+    void TryLoadOutbackAssets()
+    {
+        const string koalaPath = "/tmp/flappybrain-assets/74284772-cd66-4305-b730-6ad58da2ffe8.png";
+        const string bgPath    = "/tmp/flappybrain-assets/image-1---e490a7db-46c4-4ae2-b801-066b168dd1eb.png";
+        if (_koalaTexture == null && System.IO.File.Exists(koalaPath))
+            try { _koalaTexture = Texture2D.FromFile(GraphicsDevice, koalaPath); } catch { }
+        if (_bgTexture == null && System.IO.File.Exists(bgPath))
+            try { _bgTexture = Texture2D.FromFile(GraphicsDevice, bgPath); } catch { }
     }
 
     void ReturnToLaunchMenu()
@@ -1800,6 +1824,7 @@ public class FlappyBrainGameV2 : Game
             "[1]  TRAIN BRAIN + PLAY",
             "[2]  PLAY WITH EXISTING TRAINING",
             "[3]  PLAY WITH SPACE BAR",
+            "[4]  OUTBACK FLYING KOALA",
         };
 
         float baseY = 280;
@@ -1813,7 +1838,7 @@ public class FlappyBrainGameV2 : Game
             DrawBigText(labels[i], LogW / 2f, y, size, col, centered: true, outline: true);
         }
 
-        DrawBigText("PRESS 1, 2, OR 3 TO SELECT", LogW / 2f, LogH - 60, 16,
+        DrawBigText("PRESS 1, 2, 3, OR 4 TO SELECT", LogW / 2f, LogH - 60, 16,
             Color.White * 0.6f, centered: true);
         DrawBigText("ESC = QUIT", LogW / 2f, LogH - 38, 13,
             Color.White * 0.45f, centered: true);
