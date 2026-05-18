@@ -2,8 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 
+export type GameTheme = 'neon' | 'outback'
+
 interface FlappyGameProps {
   playerName: string
+  theme?: GameTheme
   onGameEnd: (score: number, sectionsCompleted: number) => void
 }
 
@@ -26,7 +29,7 @@ const BASE_GAP = 200
 const SPAWN_INTERVAL_MS = 2500
 const BASE_SCROLL_SPEED = 3.2
 
-export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
+export default function FlappyGame({ playerName, theme = 'neon', onGameEnd }: FlappyGameProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [state, setState] = useState<GameState>('IDLE')
@@ -136,25 +139,49 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
 
     const drawBackground = (t: number) => {
       const grd = ctx.createLinearGradient(0, 0, 0, height)
-      grd.addColorStop(0, '#03030a')
-      grd.addColorStop(0.55, '#0b0f2a')
-      grd.addColorStop(1, '#1a0a2a')
+      if (theme === 'outback') {
+        grd.addColorStop(0, '#1a0500')
+        grd.addColorStop(0.55, '#4A2A1A')
+        grd.addColorStop(1, '#C4622D')
+      } else {
+        grd.addColorStop(0, '#03030a')
+        grd.addColorStop(0.55, '#0b0f2a')
+        grd.addColorStop(1, '#1a0a2a')
+      }
       ctx.fillStyle = grd
       ctx.fillRect(0, 0, width, height)
 
       const stars = ensureStars()
-      for (const s of stars) {
-        const a = 0.45 + 0.4 * Math.sin(t * 0.002 + s.tw)
-        ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`
-        ctx.beginPath()
-        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
-        ctx.fill()
+      if (theme === 'outback') {
+        const drift = (t * 0.02) % width
+        for (const s of stars) {
+          const a = 0.25 + 0.25 * Math.sin(t * 0.001 + s.tw)
+          ctx.fillStyle = `rgba(210,160,80,${a.toFixed(3)})`
+          ctx.beginPath()
+          const x = (s.x - drift + width) % width
+          ctx.ellipse(x, s.y, s.r * 1.6, s.r * 0.9, 0, 0, Math.PI * 2)
+          ctx.fill()
+        }
+      } else {
+        for (const s of stars) {
+          const a = 0.45 + 0.4 * Math.sin(t * 0.002 + s.tw)
+          ctx.fillStyle = `rgba(255,255,255,${a.toFixed(3)})`
+          ctx.beginPath()
+          ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2)
+          ctx.fill()
+        }
       }
 
       const horizon = height * 0.78
-      ctx.fillStyle = '#0d0612'
-      ctx.fillRect(0, horizon, width, height - horizon)
-      ctx.strokeStyle = 'rgba(0,255,229,0.18)'
+      if (theme === 'outback') {
+        ctx.fillStyle = '#3D1F0A'
+        ctx.fillRect(0, horizon, width, height - horizon)
+        ctx.strokeStyle = 'rgba(200,120,40,0.4)'
+      } else {
+        ctx.fillStyle = '#0d0612'
+        ctx.fillRect(0, horizon, width, height - horizon)
+        ctx.strokeStyle = 'rgba(0,255,229,0.18)'
+      }
       ctx.lineWidth = 1
       ctx.beginPath()
       ctx.moveTo(0, horizon)
@@ -178,62 +205,107 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
       ctx.translate(x, y)
       ctx.rotate(tilt)
 
-      ctx.fillStyle = '#ffb800'
+      const bodyColour = theme === 'outback' ? '#C8A860' : '#ffb800'
+      const earDark = theme === 'outback' ? '#1a0a00' : '#0a0a0f'
+
+      ctx.fillStyle = bodyColour
       ctx.shadowBlur = 18
-      ctx.shadowColor = '#ffb800'
+      ctx.shadowColor = bodyColour
       ctx.beginPath()
       ctx.arc(0, 0, KOALA_RADIUS, 0, Math.PI * 2)
       ctx.fill()
       ctx.shadowBlur = 0
 
-      ctx.fillStyle = '#0a0a0f'
+      ctx.fillStyle = earDark
       ctx.beginPath()
       ctx.arc(-KOALA_RADIUS * 0.7, -KOALA_RADIUS * 0.6, KOALA_RADIUS * 0.55, 0, Math.PI * 2)
       ctx.arc(KOALA_RADIUS * 0.7, -KOALA_RADIUS * 0.6, KOALA_RADIUS * 0.55, 0, Math.PI * 2)
       ctx.fill()
-      ctx.fillStyle = '#ffb800'
+      ctx.fillStyle = bodyColour
       ctx.beginPath()
       ctx.arc(-KOALA_RADIUS * 0.7, -KOALA_RADIUS * 0.6, KOALA_RADIUS * 0.3, 0, Math.PI * 2)
       ctx.arc(KOALA_RADIUS * 0.7, -KOALA_RADIUS * 0.6, KOALA_RADIUS * 0.3, 0, Math.PI * 2)
       ctx.fill()
 
-      ctx.fillStyle = '#0a0a0f'
-      ctx.beginPath()
-      ctx.arc(KOALA_RADIUS * 0.5, -2, 3.2, 0, Math.PI * 2)
-      ctx.fill()
-      ctx.fillStyle = '#fff'
-      ctx.beginPath()
-      ctx.arc(KOALA_RADIUS * 0.55, -2.5, 1.2, 0, Math.PI * 2)
-      ctx.fill()
+      if (theme === 'outback') {
+        ctx.fillStyle = 'rgba(80,200,255,0.7)'
+        ctx.beginPath()
+        ctx.arc(-KOALA_RADIUS * 0.3, -2, 4, 0, Math.PI * 2)
+        ctx.arc(KOALA_RADIUS * 0.3, -2, 4, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.strokeStyle = '#000'
+        ctx.lineWidth = 1.2
+        ctx.beginPath()
+        ctx.arc(-KOALA_RADIUS * 0.3, -2, 4, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.arc(KOALA_RADIUS * 0.3, -2, 4, 0, Math.PI * 2)
+        ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(-KOALA_RADIUS * 0.3 + 4, -2)
+        ctx.lineTo(KOALA_RADIUS * 0.3 - 4, -2)
+        ctx.stroke()
 
-      ctx.fillStyle = '#0a0a0f'
-      ctx.beginPath()
-      ctx.ellipse(KOALA_RADIUS * 0.85, KOALA_RADIUS * 0.25, 4, 3, 0, 0, Math.PI * 2)
-      ctx.fill()
+        ctx.fillStyle = '#1a0a00'
+        ctx.beginPath()
+        ctx.ellipse(0, KOALA_RADIUS * 0.35, 4, 3, 0, 0, Math.PI * 2)
+        ctx.fill()
+      } else {
+        ctx.fillStyle = '#0a0a0f'
+        ctx.beginPath()
+        ctx.arc(KOALA_RADIUS * 0.5, -2, 3.2, 0, Math.PI * 2)
+        ctx.fill()
+        ctx.fillStyle = '#fff'
+        ctx.beginPath()
+        ctx.arc(KOALA_RADIUS * 0.55, -2.5, 1.2, 0, Math.PI * 2)
+        ctx.fill()
+
+        ctx.fillStyle = '#0a0a0f'
+        ctx.beginPath()
+        ctx.ellipse(KOALA_RADIUS * 0.85, KOALA_RADIUS * 0.25, 4, 3, 0, 0, Math.PI * 2)
+        ctx.fill()
+      }
 
       ctx.restore()
     }
 
     const drawPipe = (p: Pipe) => {
       ctx.save()
-      ctx.shadowBlur = 12
-      ctx.shadowColor = '#00ffe5'
-      ctx.fillStyle = '#0a1a1a'
-      ctx.strokeStyle = '#00ffe5'
+      if (theme === 'outback') {
+        ctx.shadowBlur = 12
+        ctx.shadowColor = '#C4622D'
+        ctx.fillStyle = '#2A1505'
+        ctx.strokeStyle = '#A0522D'
+      } else {
+        ctx.shadowBlur = 12
+        ctx.shadowColor = '#00ffe5'
+        ctx.fillStyle = '#0a1a1a'
+        ctx.strokeStyle = '#00ffe5'
+      }
       ctx.lineWidth = 2
 
       const topH = p.gapY
       ctx.fillRect(p.x, 0, p.width, topH)
       ctx.strokeRect(p.x + 0.5, 0.5, p.width - 1, topH - 1)
-      ctx.fillRect(p.x - 4, topH - 18, p.width + 8, 18)
-      ctx.strokeRect(p.x - 3.5, topH - 17.5, p.width + 7, 17)
+      if (theme === 'outback') {
+        ctx.fillRect(p.x - 6, topH - 20, p.width + 12, 20)
+        ctx.strokeRect(p.x - 5.5, topH - 19.5, p.width + 11, 19)
+      } else {
+        ctx.fillRect(p.x - 4, topH - 18, p.width + 8, 18)
+        ctx.strokeRect(p.x - 3.5, topH - 17.5, p.width + 7, 17)
+      }
 
       const botY = p.gapY + p.gapHeight
       const botH = height - botY
       ctx.fillRect(p.x, botY, p.width, botH)
       ctx.strokeRect(p.x + 0.5, botY + 0.5, p.width - 1, botH - 1)
-      ctx.fillRect(p.x - 4, botY, p.width + 8, 18)
-      ctx.strokeRect(p.x - 3.5, botY + 0.5, p.width + 7, 17)
+      if (theme === 'outback') {
+        ctx.fillRect(p.x - 6, botY, p.width + 12, 20)
+        ctx.strokeRect(p.x - 5.5, botY + 0.5, p.width + 11, 19)
+      } else {
+        ctx.fillRect(p.x - 4, botY, p.width + 8, 18)
+        ctx.strokeRect(p.x - 3.5, botY + 0.5, p.width + 7, 17)
+      }
 
       ctx.restore()
     }
@@ -246,22 +318,26 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
 
-      ctx.fillStyle = '#00ffe5'
+      const primary = theme === 'outback' ? '#E8AA40' : '#00ffe5'
+      const accent = theme === 'outback' ? '#FF6B35' : '#ffb800'
+      const tapShadow = theme === 'outback' ? '#E8AA40' : '#00ffe5'
+
+      ctx.fillStyle = primary
       ctx.shadowBlur = 18
-      ctx.shadowColor = '#00ffe5'
+      ctx.shadowColor = primary
       ctx.font = '20px "Press Start 2P", monospace'
       ctx.fillText('READY', width / 2, height * 0.32)
 
       ctx.font = '28px "Press Start 2P", monospace'
-      ctx.fillStyle = '#ffb800'
-      ctx.shadowColor = '#ffb800'
+      ctx.fillStyle = accent
+      ctx.shadowColor = accent
       const name = playerName.toUpperCase()
       ctx.fillText(name, width / 2, height * 0.42)
 
       const flash = 0.5 + 0.5 * Math.sin(t * 0.005)
       ctx.globalAlpha = 0.4 + 0.6 * flash
       ctx.fillStyle = '#ffffff'
-      ctx.shadowColor = '#00ffe5'
+      ctx.shadowColor = tapShadow
       ctx.font = '18px "Press Start 2P", monospace'
       ctx.fillText('TAP TO FLAP', width / 2, height * 0.58)
       ctx.globalAlpha = 1
@@ -276,19 +352,24 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
 
       ctx.textAlign = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillStyle = '#ff2d55'
+      const overColour = theme === 'outback' ? '#FF4500' : '#ff2d55'
+      const overShadow = theme === 'outback' ? '#E8AA40' : '#ff2d55'
+      const scoreColour = theme === 'outback' ? '#E8AA40' : '#00ffe5'
+      const nameColour = theme === 'outback' ? '#C8A860' : '#ffb800'
+
+      ctx.fillStyle = overColour
       ctx.shadowBlur = 22
-      ctx.shadowColor = '#ff2d55'
+      ctx.shadowColor = overShadow
       ctx.font = '36px "Press Start 2P", monospace'
       ctx.fillText('GAME OVER', width / 2, height * 0.38)
 
-      ctx.fillStyle = '#00ffe5'
-      ctx.shadowColor = '#00ffe5'
+      ctx.fillStyle = scoreColour
+      ctx.shadowColor = scoreColour
       ctx.font = '22px "Press Start 2P", monospace'
       ctx.fillText(`SCORE  ${scoreRef.current}`, width / 2, height * 0.5)
 
-      ctx.fillStyle = '#ffb800'
-      ctx.shadowColor = '#ffb800'
+      ctx.fillStyle = nameColour
+      ctx.shadowColor = nameColour
       ctx.font = '14px "Press Start 2P", monospace'
       ctx.fillText(playerName.toUpperCase(), width / 2, height * 0.6)
       ctx.restore()
@@ -296,9 +377,10 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
 
     const drawScore = () => {
       ctx.save()
-      ctx.fillStyle = '#00ffe5'
+      const c = theme === 'outback' ? '#E8AA40' : '#00ffe5'
+      ctx.fillStyle = c
       ctx.shadowBlur = 12
-      ctx.shadowColor = '#00ffe5'
+      ctx.shadowColor = c
       ctx.font = '28px "Press Start 2P", monospace'
       ctx.textAlign = 'right'
       ctx.textBaseline = 'top'
@@ -401,7 +483,7 @@ export default function FlappyGame({ playerName, onGameEnd }: FlappyGameProps) {
       canvas.removeEventListener('pointerdown', onPointer)
       window.removeEventListener('keydown', onKey)
     }
-  }, [playerName])
+  }, [playerName, theme])
 
   return (
     <div ref={containerRef} className="relative w-screen h-screen bg-black overflow-hidden">

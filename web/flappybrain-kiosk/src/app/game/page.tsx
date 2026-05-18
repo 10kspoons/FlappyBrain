@@ -2,12 +2,13 @@
 
 import { Suspense, useEffect, useState, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import FlappyGame from '@/components/FlappyGame'
+import FlappyGame, { type GameTheme } from '@/components/FlappyGame'
 
 function GameInner() {
   const router = useRouter()
   const params = useSearchParams()
   const queryName = params.get('player')
+  const queryTheme = params.get('theme') as GameTheme | null
   const [playerName, setPlayerName] = useState<string | null>(queryName || null)
   const [loading, setLoading] = useState(!queryName)
   const [error, setError] = useState<string>('')
@@ -88,7 +89,7 @@ function GameInner() {
     )
   }
 
-  return <FlappyGame playerName={playerName} onGameEnd={handleEnd} />
+  return <FlappyGame playerName={playerName} theme={queryTheme ?? 'neon'} onGameEnd={handleEnd} />
 }
 
 export default function GamePage() {
